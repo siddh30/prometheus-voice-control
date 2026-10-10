@@ -6,19 +6,6 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 
 > A personal project, built in the open. macOS only (developed on Apple Silicon). It uses paid APIs and drives your real browser and mouse, so read [Privacy and safety](#privacy-and-safety) before using it.
 
-<table align="center">
-  <tr>
-    <td align="center" valign="middle"><img src="docs/dictate.png" alt="The widget listening, with a recording timer" width="300"></td>
-    <td align="center" valign="middle"><img src="docs/transcribing.png" alt="The widget transcribing what was said" width="260"></td>
-    <td align="center" valign="middle"><img src="docs/widget.png" alt="The widget working through a job search with a live checklist" width="250"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>1. Listening</b></sub></td>
-    <td align="center"><sub><b>2. Transcribing</b></sub></td>
-    <td align="center"><sub><b>3. Working</b>, with a live checklist</sub></td>
-  </tr>
-</table>
-
 ## What you get
 
 | | |
@@ -26,6 +13,26 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 | **Prometheus** (wake word, or **F10**) | A hands-free conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
 | **Dictate** (**F9**) | Press, talk, press again: your words are typed at the cursor in any app. |
 | **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, start fresh. |
+
+## Screenshots
+
+### Dictate mode (F9)
+
+<table align="center">
+  <tr>
+    <td align="center" valign="middle"><img src="docs/dictate.png" alt="Dictate mode: listening, with a recording timer" width="340"></td>
+    <td align="center" valign="middle"><img src="docs/transcribing.png" alt="Dictate mode: transcribing what was said" width="300"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>1. Listening</b></sub></td>
+    <td align="center"><sub><b>2. Transcribing</b>, then the text is typed at your cursor</sub></td>
+  </tr>
+</table>
+
+### Prometheus mode (F10 or "Prometheus")
+
+<p align="center"><img src="docs/widget.png" alt="Prometheus mode: working through a job search with a live checklist" width="380"></p>
+<p align="center"><sub><b>Working</b> through a multi-step job, with the plan and the current step on screen.</sub></p>
 
 Things it does well:
 
