@@ -6,17 +6,18 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 
 > A personal project, built in the open. macOS only (developed on Apple Silicon). It uses paid APIs and drives your real browser and mouse, so read [Privacy and safety](#privacy-and-safety) before using it.
 
-<p align="center">
-  <img src="docs/dictate.png" alt="The widget in Dictate mode, listening, with a recording timer" width="400">
-  &nbsp;&nbsp;
-  <img src="docs/transcribing.png" alt="The widget in Dictate mode, transcribing what was said" width="400">
-</p>
-<p align="center"><sub>Left: listening. Right: transcribing. The widget changes colour with each state.</sub></p>
-
-<p align="center">
-  <img src="docs/widget.png" alt="The Prometheus widget working through a job search: a checklist with steps done, in progress and pending" width="380">
-</p>
-<p align="center"><sub>Prometheus working through a multi-step job with a live checklist.</sub></p>
+<table align="center">
+  <tr>
+    <td align="center" valign="middle"><img src="docs/dictate.png" alt="The widget listening, with a recording timer" width="300"></td>
+    <td align="center" valign="middle"><img src="docs/transcribing.png" alt="The widget transcribing what was said" width="260"></td>
+    <td align="center" valign="middle"><img src="docs/widget.png" alt="The widget working through a job search with a live checklist" width="250"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>1. Listening</b></sub></td>
+    <td align="center"><sub><b>2. Transcribing</b></sub></td>
+    <td align="center"><sub><b>3. Working</b>, with a live checklist</sub></td>
+  </tr>
+</table>
 
 ## What you get
 
