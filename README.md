@@ -7,11 +7,16 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 > A personal project, built in the open. macOS only (developed on Apple Silicon). It uses paid APIs and drives your real browser and mouse, so read [Privacy and safety](#privacy-and-safety) before using it.
 
 <p align="center">
-  <img src="docs/dictate.png" alt="The widget in Dictate mode, listening, with a recording timer" width="420">
+  <img src="docs/dictate.png" alt="The widget in Dictate mode, listening, with a recording timer" width="400">
   &nbsp;&nbsp;
+  <img src="docs/transcribing.png" alt="The widget in Dictate mode, transcribing what was said" width="400">
+</p>
+<p align="center"><sub>Left: listening. Right: transcribing. The widget changes colour with each state.</sub></p>
+
+<p align="center">
   <img src="docs/widget.png" alt="The Prometheus widget working through a job search: a checklist with steps done, in progress and pending" width="380">
 </p>
-<p align="center"><sub>Left: listening. Right: Prometheus working through a multi-step job with a live checklist.</sub></p>
+<p align="center"><sub>Prometheus working through a multi-step job with a live checklist.</sub></p>
 
 ## What you get
 
