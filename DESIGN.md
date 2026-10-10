@@ -234,7 +234,7 @@ OpenTelemetry spans around each mode and turn go to a local Phoenix instance (`u
 | To add | Do this |
 |---|---|
 | A mode | New file in `modes/` with `@modes.register("name")` |
-| A quick action | New file in `modes/actions/` with `@actions.register(...)` |
+| A quick action | New file in `actions/` with `@actions.register(...)` |
 | A skill | New folder in `.claude/skills/<name>/SKILL.md` |
 | A browser backend | Implement the backend protocol and register it |
 | An STT or TTS engine | Implement the base class, register by name, select in `config.yaml` |

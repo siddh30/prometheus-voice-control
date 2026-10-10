@@ -28,7 +28,7 @@ A Swift app owns the widget, global hotkeys and the macOS permissions (screen, m
 
 ## Requirements
 
-- macOS 14+ on Apple Silicon (Intel is untested)
+- macOS on Apple Silicon (developed and tested on a recent macOS; Intel is untested)
 - [uv](https://docs.astral.sh/uv/) (it installs Python 3.14 for you), Xcode Command Line Tools (`xcode-select --install`, for Swift)
 - **Google Chrome**, and [Node.js](https://nodejs.org) for browser control (`brew install node`)
 - API keys:
@@ -112,7 +112,7 @@ scripts/release.sh "what changed"   # freeze the current code as the version you
 
 ## Extending
 
-- A quick action: a file in `src/voicectl/modes/actions/` with `@actions.register(...)`
+- A quick action: a file in `src/voicectl/actions/` with `@actions.register(...)`
 - A skill: `.claude/skills/<name>/SKILL.md`
 - A mode, STT/TTS engine or browser backend: register it by name and select it in `config.yaml`
 
