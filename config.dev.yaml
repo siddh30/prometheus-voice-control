@@ -1,0 +1,19 @@
+# DEV profile: what I (the developer assistant) use for testing. It can never disturb the version you use:
+# own data folder (data-dev/), own port, no hotkeys, no microphone, no wake word, no voice output, and a hidden test
+# browser instead of your Chrome. Applied on top of config.yaml whenever the profile is "dev" (the default in this folder).
+hotkeys:
+  prometheus: ""        # no global keys, so it never steals F9/F10 from your app
+  dictate: ""
+ui:
+  ws_port: 8766         # your app uses 8765
+wake_word:
+  enabled: false        # never opens the microphone on its own
+tts:
+  enabled: false        # never plays sound through your headphones/speakers
+browser:
+  backend: playwright   # a hidden test browser; never your Chrome
+  headless: true
+telemetry:
+  project: voicectl-dev
+agent:
+  warm_on_launch: false   # my test runs never spawn the agent or the browser bridge by themselves

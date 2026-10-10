@@ -1,0 +1,58 @@
+import SwiftUI
+import AppKit
+
+/// `VoiceOverlay --snapshot <dir>` renders each state to a PNG for design review (no screen-recording permission needed).
+@MainActor
+func renderSnapshots(to dir: String) {
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    func shot(_ name: String, _ setup: (OverlayModel) -> Void) {
+        let m = OverlayModel()
+        m.connected = true
+        setup(m)
+        let view = OverlayView(model: m)
+            .background(ProcessInfo.processInfo.environment["SNAP_BG"] == "white" ? Color.white : Color(red: 0.13, green: 0.14, blue: 0.14))
+        let r = ImageRenderer(content: view)
+        r.scale = 2
+        guard let img = r.nsImage, let tiff = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) else { print("fail \(name)"); return }
+        try? png.write(to: URL(fileURLWithPath: "\(dir)/\(name).png"))
+        print("wrote \(name).png")
+    }
+    shot("1_idle") { $0.phase = .idle }
+    shot("1d_typing") { $0.phase = .idle; $0.typing = true }
+    shot("1c_connecting") { $0.connected = false }
+    shot("1b_idle_wake") { $0.phase = .idle; $0.wakeListening = true }
+    shot("8_assistant_chat") { $0.phase = .thinking; $0.mode = "assistant"; $0.route = "chat"
+        $0.transcript = "What's a good way to prepare for a product manager interview?"
+        $0.result = "Start by practicing a few product sense questions out loud. Pick a product you use, then walk through who it's for and what you'd improve." }
+    shot("9_assistant_action") { $0.phase = .acting; $0.mode = "assistant"; $0.route = "action"
+        $0.transcript = "Open the downloads folder"; $0.steps = [Step(text: "Opened /Users/you/Downloads", done: true)]; $0.result = "Opened Downloads" }
+    shot("2_listening_dictate") { $0.phase = .listening; $0.mode = "dictate"; $0.level = 0.8 }
+    shot("3_transcribing") { $0.phase = .transcribing; $0.mode = "dictate" }
+    shot("4_typed") { $0.phase = .typing; $0.mode = "dictate"; $0.transcript = "Open my resume and search for product manager jobs" }
+    shot("4b_done_dictate") { $0.phase = .done; $0.mode = "dictate"; $0.transcript = "Open my resume and search for product manager jobs" }
+    shot("10_prometheus_checklist") {
+        $0.phase = .acting; $0.mode = "prometheus"
+        $0.transcript = "Find a lofi playlist on YouTube and play the first one"
+        $0.checklist = [ChecklistItem(text: "Open YouTube search", status: "done"), ChecklistItem(text: "Pick the first real result", status: "in_progress"),
+                        ChecklistItem(text: "Press play", status: "pending")]
+        $0.steps = [Step(text: "Opened youtube.com", done: true), Step(text: "Clicking: first video result", done: false)]
+        $0.result = "Found it. Opening the first result."
+    }
+    shot("11_music") { $0.phase = .music; $0.mode = "prometheus"; $0.musicTitle = "Queen – Bohemian Rhapsody (Official Video Remastered)" }
+    shot("13_long_speaking") { $0.phase = .thinking; $0.mode = "prometheus"; $0.speaking = true
+        $0.transcript = String(repeating: "Here is a long answer that keeps going so the caption has to grow and then scroll to follow the newest words. ", count: 2) }
+    shot("12_text_only") { $0.phase = .idle; $0.voiceOn = false }
+    shot("5_action") { $0.phase = .acting; $0.mode = "action"; $0.transcript = "Open the downloads folder" }
+    shot("6_agent_plan") {
+        $0.phase = .thinking; $0.mode = "agent"; $0.session = "SESSION · TURN 2 · 4 MIN"
+        $0.transcript = "Find me product manager jobs on LinkedIn that fit my resume"
+        $0.plan = ["Read resume from ~/Documents", "Search LinkedIn for PM roles", "Rank by fit and summarize"]
+    }
+    shot("7_agent_approval") {
+        $0.phase = .awaiting_approval; $0.mode = "agent"; $0.session = "SESSION · TURN 2 · 4 MIN"
+        $0.transcript = "Apply to the first one"
+        $0.steps = [Step(text: "Reading resume.pdf", done: true), Step(text: "Opened LinkedIn job: Senior PM, Stripe", done: true)]
+        $0.approval = "Click 'Easy Apply' on Stripe — Senior PM?"
+    }
+}

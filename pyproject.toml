@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speech-to-text-control"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "faster-whisper",
+    "openai",
+    "numpy",
+    "sounddevice",
+    "pynput",
+    "pyyaml",
+    "python-dotenv",
+    "websockets",
+    "claude-agent-sdk",
+    "anthropic",
+    "playwright",
+    "edge-tts",
+    "typesafe-sdk",
+    "arize-phoenix-otel",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp-proto-http",
+    "openinference-instrumentation-claude-agent-sdk",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+
+[project.scripts]
+voicectl = "voicectl.main:main"

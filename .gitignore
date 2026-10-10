@@ -1,0 +1,29 @@
+# secrets and local config: never commit
+.env
+.env.*
+!.env.example
+profile.txt
+*.key
+*.pem
+
+# local data (memory, learnings, voice cache, traces, logs)
+data/
+data-dev/
+phoenix_data/
+releases/
+*.db
+*.log
+*.log.prev
+
+# build and tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+overlay/.build/
+*.app/
+.idea/
+*.iml
+.DS_Store
+.claude/settings.local.json
+*.egg-info/

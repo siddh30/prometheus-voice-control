@@ -1,0 +1,106 @@
+hotkeys:
+  dictate: f9          # hold nothing: press once, talk, press again; your words are typed where the cursor is
+  prometheus: f10       # the main agent: talk, ask it to do things, interrupt it any time
+  # assistant: f10      # (older routed version: chat + separate agent + router)
+  # action: f11         # (optional) single-shot modes can still be bound to their own keys
+  # agent: f12
+  # conversation: f8
+  cancel: esc
+
+recording:
+  mode: toggle          # toggle: press to start, press again to stop | hold: push-to-talk
+  sample_rate: 16000
+  min_hold_ms: 300      # shorter recordings are ignored
+  max_hold_s: 120       # auto-stop runaway recordings
+
+stt:
+  backend: openai           # openai (Whisper API, needs credits) | faster_whisper (local, offline)
+  language: en              # force English (auto-detect turns background noise into Greek/Hindi/Korean text)
+  hotwords: [Prometheus, LinkedIn, GitHub, Anthropic, OpenAI, Datadog, Stripe, Kubernetes]   # names it should get right
+  faster_whisper:
+    model: small.en
+    compute_type: int8
+  openai:
+    model: whisper-1          # honours language: en. (gpt-4o-transcribe ignores it and writes accented English in Urdu/Hindi script)
+
+output:
+  typing_method: clipboard  # clipboard | keys
+  restore_clipboard: true
+
+ui:
+  ws_host: 127.0.0.1
+  ws_port: 8765
+
+action:
+  llm_fallback: true        # Sonnet picks an action when no regex pattern matches
+
+agent:
+  model: claude-sonnet-4-6
+  warm_on_launch: true      # start the agent and the browser bridge when the app opens (hides the ~15 s cold start)
+  idle_timeout_min: 30      # a session continues across F11 presses until idle this long
+  require_approval: true    # ask before risky steps (send/submit/buy/delete, shell, file writes)
+  risk:
+    enabled: true           # TypeSafe Jev second opinion on clicks/keypresses (when TYPESAFE_API_KEY is set)
+    threshold: 0.4          # risk probability at which Prometheus asks you first
+  approval_timeout_s: 120
+  context_paths:            # folders the agent may look in for your resume / notes
+    - ~/Documents
+    - ~/Desktop
+    - ~/Downloads
+
+telemetry:
+  enabled: true
+  project: voicectl
+  endpoint: http://localhost:6006/v1/traces   # Phoenix (scripts/phoenix.sh)
+
+tts:
+  enabled: true
+  backend: edge             # edge (free, online neural voices, no key) | say (macOS built-in, offline)
+  voice: en-US-ChristopherNeural # warm, smooth male. Others: en-GB-RyanNeural, en-US-BrianNeural, en-US-ChristopherNeural, en-US-AriaNeural (female)
+  rate: "+25%"                # speaking speed: "+0%" is normal; try "+35%" for faster, "+15%" for slower
+  max_chars: 450            # long answers are trimmed to whole sentences; the full text stays on screen
+  modes:                    # which modes talk back
+    dictate: false          # it already types; no need to read it back
+    action: true
+    agent: true
+    conversation: true
+    assistant: true
+    prometheus: true
+
+conversation:
+  model: claude-sonnet-4-6
+  stt_model: base.en        # faster than dictation's small.en (~0.6s vs ~1.2s per sentence, ~2 pts less accurate)
+  silence_s: 1.4            # this much quiet after you speak = your turn is over (long enough to pause and think)
+  tentative_s: 0.9          # start transcribing after this much quiet; discarded if you keep talking
+  no_speech_s: 15           # nobody talks for this long = one "didn't catch that"; twice = the conversation ends
+  max_utterance_s: 45
+  max_tokens: 400
+  max_history_turns: 20
+  output: headphones        # auto | headphones | speakers   (you told me: headphones; "auto" can't recognise USB headphone amps)
+  barge_in: true            # on speakers: true = it hears you over its own voice (echo-aware), false = deaf while it speaks (F10 only)
+  barge_min_level: 0.04     # while it is speaking, your voice must be at least this loud (and 2x its echo)
+
+assistant:
+  router: auto                     # auto = TypeSafe Jev when TYPESAFE_API_KEY is set, else the LLM | jev | llm
+  speculative_chat: true           # start the chat reply while the router decides (saves ~1s on conversation turns)
+  confirm_actions: short           # short = say "Opening LinkedIn." after an action | silent
+  router_model: claude-haiku-4-5   # LLM router / fallback: decides action | agent | chat, extracts action arguments
+  jev:
+    min_confidence: 0.6            # below this, Jev defers to the LLM router
+    timeout_s: 4
+    instant: true                  # Prometheus lets Jev run clearly instant commands without the model
+    instant_confidence: 0.85
+
+wake_word:
+  enabled: true
+  word: prometheus          # say "Prometheus" (or "Prometheus, open Safari") to start the assistant hands-free
+  model: base.en            # small local model used only to spot the word; audio never leaves your Mac
+
+memory:
+  cleanup_every_min: 60       # Prometheus tidies its memory every hour, but only when it is idle
+  session_max_age_min: 60     # a session older than this is summarised into a short note and closed
+  keep_turns_hours: 24        # the turn log (used for the note) is kept this long
+  max_learnings: 300          # lessons learned from experience; the least used are dropped past this (yours never)
+  max_facts: 200              # saved facts are capped; the ones you asked it to remember are never auto-deleted
+  max_log_mb: 5               # log files over this are trimmed to their last megabyte
+  max_rss_mb: 3500            # if the background process grows past this while idle, it restarts itself
