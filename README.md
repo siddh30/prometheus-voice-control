@@ -24,9 +24,102 @@ Things it does well:
 - **Operates the browser like a person**: switches tabs, uses shortcuts, goes straight to the right URL, and falls back to the real mouse when a page element can't be clicked.
 - **Learns.** It records which actions work or fail per site and turns that into lessons it applies to the right task later.
 
-## How it works (short version)
+## How it works
 
-A Swift app owns the widget, global hotkeys and the macOS permissions (screen, mouse, keyboard). A Python daemon owns audio, speech models and the agent. They talk over a local WebSocket. The agent is Claude (via the Claude Agent SDK) with tools for the browser (Chrome DevTools MCP), the screen, memory and quick actions. Full architecture, diagrams and design decisions: **[DESIGN.md](DESIGN.md)**.
+A Swift app owns the widget, global hotkeys and the macOS permissions (screen, mouse, keyboard). A Python daemon owns audio, speech models and the agent. They talk over a local WebSocket. The agent is Claude (via the Claude Agent SDK) with tools for the browser (Chrome DevTools MCP), the screen, memory and quick actions.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph App["Swift app (menu-bar / Dock, SwiftUI)"]
+        HK[Global hotkeys<br/>CGEventTap]
+        UI[Floating widget<br/>states, plan, captions, typing box]
+        SC[Screen control<br/>screenshot, mouse, keys]
+        PASTE[Paste at cursor]
+        SUP[Daemon supervisor]
+    end
+
+    subgraph Daemon["Python daemon"]
+        BUS[(Event bus)]
+        WS[WebSocket bridge]
+        SM[Session manager<br/>state machine]
+        EARS[Ears<br/>mic stream + VAD + barge-in]
+        STT[Speech-to-text<br/>OpenAI Whisper or local faster-whisper]
+        TTS[Speaker<br/>Edge neural TTS, word-timed captions]
+        WAKE[Wake-word listener<br/>local model only]
+        subgraph Modes
+            DICT[Dictate]
+            PROM[Prometheus]
+        end
+        subgraph AgentLayer["Agent layer (Claude Agent SDK)"]
+            RUN[Agent runner<br/>streaming, watchdog, tool cap]
+            BT[browser tools]
+            ST[screen tools]
+            MT[memory tools]
+            AT[quick actions]
+        end
+        MEM[(SQLite memory)]
+        MAINT[Maintenance<br/>hourly tidy, compaction]
+        JEV[Jev classifiers<br/>complexity, risk, instant commands]
+    end
+
+    CH[Your Chrome<br/>DevTools MCP]
+    PH[(Phoenix<br/>local traces)]
+
+    HK --> WS
+    WS <--> BUS
+    UI <--> WS
+    SC <--> WS
+    SUP --> Daemon
+    SM --> Modes
+    EARS --> STT --> PROM
+    WAKE --> SM
+    PROM --> JEV
+    PROM --> RUN
+    RUN --> BT --> CH
+    RUN --> ST --> SC
+    RUN --> MT --> MEM
+    RUN --> AT
+    PROM --> TTS
+    DICT --> PASTE
+    MAINT --> MEM
+    SM --> PH
+```
+
+### One conversational turn
+
+```mermaid
+sequenceDiagram
+    participant U as You
+    participant E as Ears (VAD + mic)
+    participant S as STT
+    participant P as Prometheus
+    participant J as Jev
+    participant A as Agent (Claude)
+    participant T as Speaker
+
+    U->>E: speaks
+    E->>S: audio (speculative transcription after a short pause)
+    S->>P: text
+    P->>J: instant command? complexity? risk?
+    alt exact one-step command ("open Safari", "volume 30")
+        P->>P: run the action directly, no model
+    else everything else
+        P->>A: request + complexity hint + recent context
+        loop streaming
+            A-->>P: words
+            P-->>T: speak sentence by sentence (word-synced captions)
+            A-->>P: tool call (browser / screen / memory)
+            P-->>U: step shown on the widget
+        end
+    end
+    U-->>E: talks over it
+    E-->>T: stop speaking at once
+    E-->>A: cancel, newest sentence becomes the instruction
+```
+
+Full design, memory model, safety and the extension points: **[DESIGN.md](DESIGN.md)**.
 
 ## Requirements
 
