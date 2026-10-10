@@ -29,3 +29,11 @@ def test_memory_session_lifecycle(tmp_path):
     assert m.active_session(60) is None          # idle/ended -> new session next time
     m.remember("role", "PM"); assert m.facts() == {"role": "PM"}
     assert m.forget("role") and m.facts() == {}
+
+
+def test_step_text_shows_a_readable_address_never_the_raw_url_or_search_terms():
+    from voicectl.agents.runner import describe_tool
+    raw = "https://www.linkedin.com/jobs/search/?keywords=Applied%20AI%20ML%20Lead&location=New%20York%2C%20NJ&f_TPR=r604800"
+    assert describe_tool("mcp__browser__browser_goto", {"url": raw}) == "Opening linkedin.com/jobs/search"
+    assert describe_tool("mcp__browser__browser_new_tab", {"url": "https://jobs.apple.com/en-us/search?team=mlai"}) == "Opening a new tab: jobs.apple.com/en-us/search"
+    assert "keywords" not in describe_tool("mcp__browser__browser_goto", {"url": raw})

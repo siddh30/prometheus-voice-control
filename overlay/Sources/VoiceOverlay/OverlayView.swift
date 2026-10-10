@@ -103,8 +103,13 @@ struct AgentPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !model.checklist.isEmpty {
-                Label("CHECKLIST", systemImage: "checklist").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6)
-                    .foregroundStyle(.white.opacity(0.5))
+                HStack {
+                    Label("CHECKLIST", systemImage: "checklist").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6)
+                    Spacer()
+                    Text("\(model.checklist.filter { $0.status == "done" || $0.status == "skipped" }.count) of \(model.checklist.count)")
+                        .font(.system(size: 9, weight: .semibold, design: .rounded)).tracking(0.6)
+                }
+                .foregroundStyle(.white.opacity(0.5))
                 ForEach(model.checklist) { item in
                     HStack(alignment: .top, spacing: 8) {
                         switch item.status {
@@ -113,14 +118,18 @@ struct AgentPanel: View {
                         case "skipped": Image(systemName: "minus.circle").foregroundStyle(.white.opacity(0.35))
                         default: Image(systemName: "circle").foregroundStyle(.white.opacity(0.35))
                         }
-                        Text(item.text).font(.system(size: 12, design: .rounded))
+                        Text(item.text).font(.system(size: 12, weight: item.status == "in_progress" ? .semibold : .regular, design: .rounded))
                             .foregroundStyle(.white.opacity(item.status == "done" || item.status == "skipped" ? 0.5 : 0.95))
                             .strikethrough(item.status == "skipped")
                     }
                     .font(.system(size: 12))
                 }
                 if let now = model.steps.last(where: { !$0.done }) {
-                    Text("Now: \(now.text)").font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.45))
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.right").font(.system(size: 8, weight: .bold))
+                        Text(now.text).lineLimit(1).truncationMode(.middle)
+                    }
+                    .font(.system(size: 10, design: .rounded)).foregroundStyle(model.palette.a.opacity(0.85))
                 }
             }
             if model.checklist.isEmpty && !model.plan.isEmpty && model.steps.isEmpty {

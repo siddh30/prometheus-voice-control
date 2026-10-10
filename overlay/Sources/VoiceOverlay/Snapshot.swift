@@ -31,6 +31,15 @@ func renderSnapshots(to dir: String) {
     shot("3_transcribing") { $0.phase = .transcribing; $0.mode = "dictate" }
     shot("4_typed") { $0.phase = .typing; $0.mode = "dictate"; $0.transcript = "Open my resume and search for product manager jobs" }
     shot("4b_done_dictate") { $0.phase = .done; $0.mode = "dictate"; $0.transcript = "Open my resume and search for product manager jobs" }
+    shot("14_job_search") {
+        $0.phase = .acting; $0.mode = "prometheus"
+        $0.transcript = "Can you find the best jobs for me based on my resume saved locally"
+        $0.checklist = [ChecklistItem(text: "Read resume from local files", status: "done"), ChecklistItem(text: "Extract profile and key skills", status: "done"),
+                        ChecklistItem(text: "Search LinkedIn Jobs for matching roles", status: "in_progress"), ChecklistItem(text: "Open top 6-8 postings", status: "pending"),
+                        ChecklistItem(text: "Score each posting against resume", status: "pending"), ChecklistItem(text: "Report ranked shortlist with links", status: "pending")]
+        $0.steps = [Step(text: "Opening linkedin.com/jobs/search", done: false)]
+        $0.result = "Got your resume. Now searching LinkedIn for the best matching roles."
+    }
     shot("10_prometheus_checklist") {
         $0.phase = .acting; $0.mode = "prometheus"
         $0.transcript = "Find a lofi playlist on YouTube and play the first one"

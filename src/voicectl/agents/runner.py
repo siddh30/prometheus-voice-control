@@ -131,10 +131,18 @@ class HiddenTagFilter:
 HIDDEN_TOOLS = {"ToolSearch", "checklist_set", "checklist_update"}      # internal bookkeeping, not "steps" to show
 
 
+def pretty_url(url: str) -> str:
+    """"https://www.linkedin.com/jobs/search/?keywords=Applied%20AI..." -> "linkedin.com/jobs/search": readable, and no search terms on screen."""
+    from urllib.parse import urlparse
+    u = urlparse(url if "://" in url else f"https://{url}")
+    path = "/".join(u.path.strip("/").split("/")[:2])
+    return (u.netloc.removeprefix("www.") + (f"/{path}" if path else ""))[:48]
+
+
 def describe_tool(name: str, inp: dict[str, Any]) -> str:
     short = name.split("__")[-1]
     match short:
-        case "browser_goto": return f"Opening {inp.get('url', '')}"
+        case "browser_goto": return f"Opening {pretty_url(str(inp.get('url', '')))}"
         case "browser_read": return "Reading the page"
         case "browser_click": return f"Clicking: {inp.get('description') or inp.get('index')}"
         case "browser_type": return f"Typing: {inp.get('description') or inp.get('text', '')[:40]}"
@@ -146,7 +154,7 @@ def describe_tool(name: str, inp: dict[str, Any]) -> str:
         case "browser_media": return f"Video: {inp.get('action', '')}"
         case "browser_tabs": return "Checking open tabs"
         case "browser_switch_tab": return f"Switching to the {inp.get('query', '')} tab"
-        case "browser_new_tab": return f"Opening a new tab: {inp.get('url', '')}"
+        case "browser_new_tab": return f"Opening a new tab: {pretty_url(str(inp.get('url', '')))}"
         case "browser_close_tab": return "Closing a tab"
         case "screen_look": return "Looking at the screen"
         case "screen_click": return f"Clicking: {inp.get('description') or 'on the screen'}"
