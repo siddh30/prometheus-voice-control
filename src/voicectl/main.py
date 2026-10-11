@@ -65,7 +65,7 @@ async def run() -> None:
         maint.on_restart = lambda: asyncio.get_running_loop().call_later(1.0, os._exit, 0)
     maint.start()
 
-    control = Control(bus)                                   # every front-end command arrives here (see voicectl/api)
+    control = ctx.shared.setdefault("control", Control(bus))        # every front-end command arrives here (see voicectl/api)
 
     @control.on("maintenance")
     async def _maintenance(_cmd) -> None:
@@ -154,7 +154,7 @@ async def run() -> None:
         if wake:
             wake.set_enabled(cmd["enabled"])
 
-    control_task = asyncio.create_task(control.run())
+    control.start()
 
     keys = ", ".join(f"{k.upper()}={m}" for m, k in hotkey_map.items())
     log.info("Ready. %s (%s mode). Ctrl+C to quit.", keys, config.get("recording.mode", "toggle"))
@@ -164,7 +164,7 @@ async def run() -> None:
         if hotkeys:
             hotkeys.stop()
         bridge_task.cancel()
-        control_task.cancel()
+        control.stop()
         maint.stop()
         if wake:
             wake.stop()

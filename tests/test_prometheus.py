@@ -18,7 +18,7 @@ class FakeRunner:
     def status(self): return "Idle."
     async def warm_up(self): ...
     async def interrupt(self): self.interrupted += 1
-    def on_ui_command(self, d): self.approvals.append(d)
+    def respond_approval(self, approved): self.approvals.append({"command": "approval", "approved": approved})
 
     async def stream_turn(self, text, context="", hints="", complexity="", publish_result=True):
         self.turns.append(text); self.contexts.append(context); self.hints = getattr(self, 'hints', []) + [hints]

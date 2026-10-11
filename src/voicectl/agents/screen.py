@@ -6,14 +6,12 @@ The Voice Control app does the actual capturing and clicking (it holds the Scree
 this module asks it over the UI WebSocket and maps coordinates. The model sees a downscaled screenshot and gives
 coordinates in THAT image's pixels; we convert them to real screen points."""
 
-import asyncio
 import base64
-import uuid
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from voicectl.core.events import EventBus
+from voicectl.api import RequestBroker, RequestTimeout
 
 
 class ScreenError(RuntimeError):
@@ -21,36 +19,16 @@ class ScreenError(RuntimeError):
 
 
 class ScreenLink:
-    """Request/response over the event bus: publish `input_request`, await the app's `input_result` with the same id."""
+    """The agent's line to the app that can see and touch the screen: one request, one answer, through the API broker."""
 
-    def __init__(self, bus: EventBus) -> None:
-        self.bus = bus
-        self._pending: dict[str, asyncio.Future] = {}
-        self._task: asyncio.Task | None = None
-
-    def start(self) -> None:
-        if self._task is None:
-            self._task = asyncio.get_running_loop().create_task(self._listen())
-
-    async def _listen(self) -> None:
-        async for ev in self.bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "input_result":
-                fut = self._pending.pop(ev.data.get("id", ""), None)
-                if fut and not fut.done():
-                    fut.set_result(ev.data)
+    def __init__(self, broker: RequestBroker) -> None:
+        self.broker = broker
 
     async def request(self, op: str, timeout: float = 20.0, **args: Any) -> dict[str, Any]:
-        self.start()
-        rid = uuid.uuid4().hex
-        fut = asyncio.get_running_loop().create_future()
-        self._pending[rid] = fut
-        self.bus.publish("input_request", id=rid, op=op, **args)
         try:
-            res = await asyncio.wait_for(fut, timeout)
-        except asyncio.TimeoutError:
+            res = await self.broker.request("input_request", timeout, op=op, **args)
+        except RequestTimeout:
             raise ScreenError("The Voice Control app didn't answer. Screen control only works while the app is open.") from None
-        finally:
-            self._pending.pop(rid, None)
         if not res.get("ok"):
             raise ScreenError(res.get("error") or "Screen control failed.")
         return res

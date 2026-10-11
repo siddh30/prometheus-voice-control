@@ -19,7 +19,7 @@ class FakeRunner:
     def status(self): return f"Working on: {self.task}." if self.task else "Idle."
     async def warm_up(self): ...
     async def interrupt(self): self.interrupted += 1
-    def on_ui_command(self, d): self.approvals.append(d)
+    def respond_approval(self, approved): self.approvals.append({"command": "approval", "approved": approved})
 
     async def run_turn(self, text, context=""):
         self.task = text

@@ -63,7 +63,7 @@ async def test_gate_asks_when_jev_flags_what_the_word_list_missed(tmp_path):
     async def watch():
         async for ev in r.bus.subscribe():
             if ev.type == "approval":
-                asked.append(ev.data["text"]); r.on_ui_command({"command": "approval", "approved": False})
+                asked.append(ev.data["text"]); r.respond_approval(False)
     w = asyncio.create_task(watch()); await asyncio.sleep(0)
     res = await r._can_use_tool("mcp__browser__browser_click", {"index": 3, "description": "Place bet"}, None)   # no risky WORD in it
     w.cancel()
@@ -86,7 +86,7 @@ async def test_the_word_list_still_works_without_jev(tmp_path):
     async def watch():
         async for ev in r.bus.subscribe():
             if ev.type == "approval":
-                asked.append(ev.data["text"]); r.on_ui_command({"command": "approval", "approved": True})
+                asked.append(ev.data["text"]); r.respond_approval(True)
     w = asyncio.create_task(watch()); await asyncio.sleep(0)
     res = await r._can_use_tool("mcp__browser__browser_click", {"index": 3, "description": "Easy Apply button"}, None)
     w.cancel()

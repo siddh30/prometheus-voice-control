@@ -134,7 +134,7 @@ class AssistantMode(ConversationMode):
         runner = runner_for(self.ctx)
 
         if runner.pending_approval and (answer := parse_yes_no(text)) is not None:      # "yes, go ahead" / "no"
-            runner.on_ui_command({"command": "approval", "approved": answer})
+            runner.respond_approval(answer)
             reply = "Okay." if answer else "Okay, I won't."
             await self._speak(reply)
             return reply

@@ -91,3 +91,61 @@ def test_event_payloads_are_checked_against_the_contract():
     assert validate_event("step", {"done": True}) == "step: missing 'text'"
     assert "wrong type" in validate_event("voice", {"on": "yes"})
     assert "unknown event type" in validate_event("sparkles", {})
+
+
+async def test_a_request_gets_the_answer_with_its_own_id_and_times_out_when_nobody_answers():
+    import pytest
+    from voicectl.api import RequestBroker, RequestTimeout
+    bus = EventBus()
+    broker = RequestBroker(bus)
+    control = Control(bus)
+    control.on("input_result", broker.resolve)
+    control.start()
+
+    async def app():                                                              # a stand-in for the widget
+        async for ev in bus.subscribe():
+            if ev.type == "input_request":
+                bus.publish("ui_command", command="input_result", id="wrong", ok=False)   # someone else's answer: ignored
+                bus.publish("ui_command", command="input_result", id=ev.data["id"], ok=True, image="abc")
+                return
+    answerer = asyncio.create_task(app())
+    await asyncio.sleep(0.01)
+    res = await broker.request("input_request", 1.0, op="screenshot")
+    assert res["ok"] is True and res["image"] == "abc"
+    await answerer
+    with pytest.raises(RequestTimeout):
+        await broker.request("input_request", 0.05, op="screenshot")
+    control.stop()
+
+
+async def test_the_screen_link_turns_a_failed_or_missing_answer_into_one_clear_error():
+    import pytest
+    from voicectl.agents.screen import ScreenError, ScreenLink
+
+    class Broker:
+        def __init__(self, result): self.result = result
+        async def request(self, *a, **k):
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+
+    from voicectl.api import RequestTimeout
+    assert (await ScreenLink(Broker({"ok": True, "x": 1})).request("screenshot"))["x"] == 1
+    with pytest.raises(ScreenError, match="Screen recording"):
+        await ScreenLink(Broker({"ok": False, "error": "Screen recording is off"})).request("screenshot")
+    with pytest.raises(ScreenError, match="didn't answer"):
+        await ScreenLink(Broker(RequestTimeout("input_request"))).request("screenshot")
+
+
+async def test_an_approval_from_the_widget_reaches_the_waiting_agent_through_the_dispatcher():
+    from voicectl.agents.runner import AgentRunner
+    runner = AgentRunner.__new__(AgentRunner)
+    runner._approval = asyncio.get_running_loop().create_future()
+    bus = EventBus()
+    control = Control(bus)
+    control.on("approval", lambda cmd: runner.respond_approval(cmd["approved"]))
+    control.start()
+    await asyncio.sleep(0.01)
+    bus.publish("ui_command", command="approval", approved=True)
+    assert await asyncio.wait_for(runner._approval, 1.0) is True
+    control.stop()

@@ -235,10 +235,11 @@ class AgentRunner:
             return f"Working on: {self.task}.{step}{page}"
         return f"Idle.{page}"
 
-    # --- UI -> runner ---
-    def on_ui_command(self, data: dict[str, Any]) -> None:
-        if data.get("command") == "approval" and self._approval and not self._approval.done():
-            self._approval.set_result(bool(data.get("approved")))
+    # --- front end -> runner ---
+    def respond_approval(self, approved: bool) -> None:
+        """The answer to an approval question, from the Approve / Deny buttons or from your voice."""
+        if self._approval and not self._approval.done():
+            self._approval.set_result(bool(approved))
 
     # --- tools ---
     def _memory_server(self):

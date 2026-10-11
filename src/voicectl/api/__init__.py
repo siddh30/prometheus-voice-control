@@ -3,6 +3,7 @@ one dispatcher that routes commands to handlers. No dependency on modes, agents 
 into any codebase (e.g. the swarm app) and register your own handlers."""
 from voicectl.api.control import Control
 from voicectl.api.events import EVENTS, validate_event
+from voicectl.api.requests import RequestBroker, RequestTimeout
 from voicectl.api.protocol import COMMANDS, Command, parse_command
 
-__all__ = ["COMMANDS", "Command", "Control", "EVENTS", "parse_command", "validate_event"]
+__all__ = ["COMMANDS", "Command", "Control", "EVENTS", "RequestBroker", "RequestTimeout", "parse_command", "validate_event"]

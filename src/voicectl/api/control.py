@@ -20,6 +20,7 @@ class Control:
         self._handlers: dict[str, list[Callable]] = {}
         self._locks: dict[str, asyncio.Lock] = {}              # one command's handlers run in order, but never hold up another command
         self._tasks: set[asyncio.Task] = set()
+        self._runner: asyncio.Task | None = None
 
     def on(self, name: str, handler: Callable[[Command], object] | None = None):
         """control.on("voice", fn)  or  @control.on("voice")  -- fn may be sync or async and takes the Command."""
@@ -27,6 +28,15 @@ class Control:
             self._handlers.setdefault(name, []).append(fn)
             return fn
         return register(handler) if handler else register
+
+    def start(self) -> None:
+        """Begin listening (idempotent: every part of the daemon may ask for it)."""
+        if self._runner is None or self._runner.done():
+            self._runner = asyncio.get_running_loop().create_task(self.run())
+
+    def stop(self) -> None:
+        if self._runner:
+            self._runner.cancel()
 
     async def dispatch(self, command: Command) -> None:
         lock = self._locks.setdefault(command.name, asyncio.Lock())

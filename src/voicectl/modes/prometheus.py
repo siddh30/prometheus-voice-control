@@ -320,7 +320,7 @@ class PrometheusMode(ConversationMode):
             asyncio.create_task(self._manual_clean())
             return True
         if runner.pending_approval and (answer := parse_yes_no(text)) is not None:
-            runner.on_ui_command({"command": "approval", "approved": answer})
+            runner.respond_approval(answer)
             if self.ctx.speaker:
                 asyncio.create_task(self.ctx.speaker.speak("Okay." if answer else "Okay, I won't."))
             return True
