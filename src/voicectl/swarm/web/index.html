@@ -122,10 +122,10 @@ function render() {
   const busy = running.size;
   $("root").classList.toggle("busy", busy > 0);
   const st = $("state"); st.textContent = busy ? `WORKING · ${busy} DEVICE${busy > 1 ? "S" : ""}` : "IDLE"; st.className = "state" + (busy ? "" : " idle");
-  const cx = 280, cy = 78, R = names.length <= 2 ? 150 : 135;
+  const cx = names.length === 1 ? 195 : 280, cy = 78, R = names.length <= 2 ? 150 : 135;
   let svg = "";
   const pos = names.map((n, i) => { const a = (-Math.PI / 2) + (2 * Math.PI * (i + 0.5)) / Math.max(names.length, 1) + (names.length === 1 ? Math.PI / 2 : 0);
-    return { n, x: cx + (names.length === 1 ? 0 : R * Math.cos(a) * 1.35), y: cy + (names.length === 1 ? -26 : 52 * Math.sin(a)) }; });
+    return { n, x: cx + (names.length === 1 ? 170 : R * Math.cos(a) * 1.35), y: cy + (names.length === 1 ? 0 : 52 * Math.sin(a)) }; });
   pos.forEach(p => { const nd = nodes[p.n]; const cls = running.has(p.n) ? "active" : finished.has(p.n) && !busy ? "done" : "";
     svg += `<line class="link ${cls}" x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" ${nd.online ? "" : 'style="opacity:.25;stroke-dasharray:3 6"'}/>`; });
   svg += `<g class="node"><circle cx="${cx}" cy="${cy}" r="26" fill="#14161a"/><circle cx="${cx}" cy="${cy}" r="26" fill="rgba(139,92,246,.18)" stroke="#8b5cf6" stroke-width="2"/>` +
