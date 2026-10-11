@@ -134,7 +134,7 @@ class AgentExecutor:
             primary = self._primary()
             self._runner = AgentRunner(self.config, EventBus(), Memory(self.data_dir / "swarm_node.db"),
                                        browser=getattr(primary, "browser", None), screen=getattr(primary, "screen", None),
-                                       prompt_name="prometheus_prompt.txt")
+                                       prompt_name="prometheus_prompt.txt", swarm_tools=False)
             self._runner.mode_name = "swarm"
         return self._runner
 

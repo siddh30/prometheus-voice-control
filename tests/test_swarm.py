@@ -254,3 +254,127 @@ def test_the_swarm_backend_entry_point_exists():
     import importlib
     mod = importlib.import_module("voicectl.swarm.service")
     assert callable(mod.main) and callable(mod.serve)
+
+
+# ---------------- the HTTP API and the voice assistant's tools ----------------
+import aiohttp
+
+
+async def api_hub(**kw):
+    hub = Hub("127.0.0.1", 0, token="s3cret", **kw)
+    await hub.start(api_port=0)
+    return hub, f"http://127.0.0.1:{hub.api.port}"
+
+
+H = {"Authorization": "Bearer s3cret"}
+
+
+async def test_the_api_needs_the_token_lists_computers_runs_a_pinned_job_and_waits_for_it():
+    hub, base = await api_hub()
+    try:
+        mac, mini = await node_peer(hub, "MacBook"), await node_peer(hub, "Mac mini")
+        async with aiohttp.ClientSession() as s:
+            assert (await s.get(base + "/api/health")).status == 200                          # health is open; everything else is not
+            assert (await s.get(base + "/api/computers")).status == 401
+            assert (await s.get(base + "/api/computers", headers={"Authorization": "Bearer wrong"})).status == 401
+            rows = await (await s.get(base + "/api/computers", headers=H)).json()
+            assert {r["name"] for r in rows} == {"MacBook", "Mac mini"}
+            r = await s.post(base + "/api/jobs", json={"text": "download the report", "computer": "mini"}, headers=H)   # a loose name finds the Mac mini
+            job = await r.json()
+            assert r.status == 201 and job["subs"][0]["node"] == "Mac mini"
+            task = await mini.get("task")
+            assert task["text"] == "download the report" and mac.ws.state.name == "OPEN"
+            waiter = asyncio.create_task(s.get(f"{base}/api/jobs/{job['id']}/wait?timeout=5", headers=H))
+            await asyncio.sleep(0.1)
+            await mini.send(type="done", sub=task["sub"], ok=True, result="saved")
+            done = await (await waiter).json()
+            assert done["state"] == "done" and done["subs"][0]["result"] == "saved"
+            bad = await s.post(base + "/api/jobs", json={"text": "x", "computer": "Cray-1"}, headers=H)
+            assert (await bad.json())["state"] == "failed"                                      # a computer that isn't there is a clear failure
+            assert (await s.post(base + "/api/jobs", json={}, headers=H)).status == 400
+            assert (await s.get(base + "/api/jobs/nope", headers=H)).status == 404
+    finally:
+        await hub.stop()
+
+
+async def test_a_wait_returns_early_when_a_computer_needs_approval_and_the_answer_goes_back():
+    hub, base = await api_hub()
+    try:
+        mini = await node_peer(hub, "Mac mini")
+        async with aiohttp.ClientSession(headers=H) as s:
+            job = await (await s.post(base + "/api/jobs", json={"text": "send the invoice"})).json()
+            task = await mini.get("task")
+            await mini.send(type="approval", sub=task["sub"], text="Send it to the client?")
+            asked = await (await s.get(f"{base}/api/jobs/{job['id']}/wait?timeout=5")).json()
+            assert asked["state"] == "running" and asked["subs"][0]["approval"]                  # did not sit there for 5 s
+            await s.post(f"{base}/api/subs/{task['sub']}/approve", json={"ok": True})
+            assert (await mini.get("approve"))["ok"] is True
+            r = await s.post(f"{base}/api/jobs/{job['id']}/cancel")
+            assert (await r.json())["state"] == "cancelled"
+    finally:
+        await hub.stop()
+
+
+async def test_the_event_stream_starts_with_the_current_state_then_follows_changes():
+    hub, base = await api_hub()
+    try:
+        mini = await node_peer(hub, "Mac mini")
+        async with aiohttp.ClientSession(headers=H) as s:
+            async with s.get(base + "/api/events") as r:
+                first = (await asyncio.wait_for(r.content.readline(), 3)).decode()
+                assert first.startswith("data: ") and "snapshot" in first and "Mac mini" in first
+                await s.post(base + "/api/jobs", json={"text": "hi"})
+                seen = ""
+                for _ in range(10):
+                    line = (await asyncio.wait_for(r.content.readline(), 3)).decode()
+                    seen += line
+                    if '"job"' in line:
+                        break
+                assert '"type": "job"' in seen
+    finally:
+        await hub.stop()
+
+
+async def test_the_voice_tools_send_work_to_the_swarm_and_report_back_and_fail_politely():
+    from voicectl.core.events import EventBus
+    from voicectl.swarm.tools import build_swarm_tools, format_job
+    hub, base = await api_hub()
+    try:
+        mini = await node_peer(hub, "Mac mini")
+        bus = EventBus()
+        steps = []
+        async def watch():
+            async for ev in bus.subscribe():
+                if ev.type == "step": steps.append(ev.data["text"])
+        w = asyncio.create_task(watch()); await asyncio.sleep(0)
+        tools = {t.name: t for t in build_swarm_tools(base, "s3cret", bus)}
+        assert set(tools) == {"swarm_computers", "swarm_run", "swarm_status", "swarm_approve", "swarm_cancel"}
+        listing = await tools["swarm_computers"].handler({})
+        assert "Mac mini: idle" in listing["content"][0]["text"]
+        run = asyncio.create_task(tools["swarm_run"].handler({"task": "find three roles", "computer": "Mac mini"}))
+        task = await mini.get("task")
+        await mini.send(type="step", sub=task["sub"], text="Opening apple.com/careers", done=False)
+        await asyncio.sleep(0.3)
+        await mini.send(type="done", sub=task["sub"], ok=True, result="Found 3 roles")
+        out = await asyncio.wait_for(run, 10)
+        assert out["content"][0]["text"] == "Found 3 roles" and not out.get("is_error")
+        assert "Mac mini: Opening apple.com/careers" in steps                                  # progress shows on this Mac's widget too
+        bad = build_swarm_tools("http://127.0.0.1:9", "s3cret")                                 # nothing is listening there
+        out = await bad[0].handler({})
+        assert out["is_error"] and "can't reach the swarm hub" in out["content"][0]["text"]
+        w.cancel()
+    finally:
+        await hub.stop()
+    assert format_job({"state": "done", "result": "", "subs": [{"node": "A", "state": "done", "result": "x"}, {"node": "B", "state": "failed", "result": "y"}]}) == "A (done): x\nB (failed): y"
+
+
+async def test_an_agent_that_is_itself_a_swarm_task_gets_no_swarm_tools_so_work_cannot_bounce_between_computers(tmp_path):
+    from voicectl.agents.runner import AgentRunner
+    from voicectl.core.config import Config
+    from voicectl.core.events import EventBus
+    from voicectl.core.memory import Memory
+    cfg = Config({"swarm": {"enabled": True, "hub_url": "ws://localhost:8780"}, "browser": {"backend": "playwright"}})
+    assert "swarm" in AgentRunner(cfg, EventBus(), Memory(tmp_path / "a.db"))._swarm_server()
+    assert AgentRunner(cfg, EventBus(), Memory(tmp_path / "b.db"), swarm_tools=False)._swarm_server() == {}
+    off = Config({"swarm": {"enabled": False}, "browser": {"backend": "playwright"}})
+    assert AgentRunner(off, EventBus(), Memory(tmp_path / "c.db"))._swarm_server() == {}

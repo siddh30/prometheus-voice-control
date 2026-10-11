@@ -15,6 +15,7 @@ dependencies = [
     "pyyaml",
     "python-dotenv",
     "websockets",
+    "aiohttp",
     "claude-agent-sdk",
     "anthropic",
     "playwright",

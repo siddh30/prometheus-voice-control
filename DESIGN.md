@@ -260,6 +260,7 @@ Every optimisation has a slower, safer path behind it, and a switch to turn it o
 | Chrome DevTools connection unavailable | Falls back to the AppleScript, then Playwright backends | `browser.backend` |
 | Speech-to-text API unreachable or out of credit | Switch to the local engine with one setting | `stt.backend` |
 | Memory extraction (Anthropic) unavailable | Skipped and retried next hour | |
+| The swarm hub is unreachable from the voice assistant | The tools say so, and the assistant offers to do it on this computer | `swarm.enabled` |
 
 Standing rule for changes to this project: check the architecture each time and keep it from becoming brittle. Before shipping, ask what happens if a dependency is missing, whether there is a safe fallback and an off switch, and whether the failure path has a test.
 
@@ -290,6 +291,9 @@ flowchart LR
     A2 -- dials in: WebSocket /node --> Hub
 ```
 
+- **One voice, many agents.** The Prometheus you talk to is the only one that speaks. Its agent has `swarm_computers`, `swarm_run`, `swarm_status`, `swarm_approve` and `swarm_cancel` tools that call the hub's HTTP API; it narrates progress (other computers' steps also appear on its widget) and speaks the combined result. An agent that is itself running a swarm task gets **no** swarm tools, so work can never bounce between computers.
+- **The API is the single surface.** `GET /api/computers`, `POST /api/jobs {text, computer?}`, `GET /api/jobs/{id}` and `.../wait`, `POST .../cancel`, `POST /api/subs/{id}/approve`, `GET /api/events` (server-sent events); a bearer token on everything except `/api/health`. The voice tools, the widget's siblings, a phone and a Shortcut all use it; it holds no state of its own.
+- **Controller plus headless nodes.** You open Prometheus Swarm on one computer (it starts the hub and its own node). Other computers run `scripts/swarm_node.sh install`, a login launch agent that runs the same backend with no window.
 - **Nodes dial the hub** (not the other way), so a laptop works wherever it is, a sleeping Mac simply shows as offline, and a restarted hub is rejoined automatically with backoff.
 - **A swarm task runs in its own agent session** (private memory and event bus), so it never mixes with your local conversation. It shares that Mac's browser connection and screen control, so one swarm task runs on a node at a time and further ones queue.
 - **Planning:** you named a machine ("on the mini") or asked for all of them, or only one is online: no model needed. Otherwise a small model chooses (one computer unless the request has clearly independent parts); if it is unavailable or answers badly the least-busy idle computer is used. Invented computer names are discarded.

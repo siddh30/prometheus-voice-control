@@ -80,7 +80,7 @@ def start_swarm(config: Config, ctx, primary_runner, bus) -> list[asyncio.Task]:
             pass
     if config.get("swarm.hub", False):
         hub = Hub(config.get("swarm.host", "0.0.0.0"), port, token, llm=_llm, summarizer=summarize, default_node=config.get("swarm.default_node", ""))
-        tasks.append(loop.create_task(hub.run()))
+        tasks.append(loop.create_task(hub.run(int(config.get("swarm.api_port", port + 1)))))
         url = f"http://{lan_ip()}:{port}/?token={token}"
         try:
             (DATA_DIR / "swarm_url.txt").write_text(url + "\n")

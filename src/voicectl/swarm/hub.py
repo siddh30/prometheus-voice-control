@@ -103,6 +103,9 @@ class Hub:
         self.uis: set[ServerConnection] = set()
         self._queues: dict[str, list[str]] = {}
         self._server = None
+        self.listeners: set[asyncio.Queue] = set()          # live event streams (the API's /api/events)
+        self._changed = asyncio.Event()                     # set whenever any job or subtask changes: wait_job wakes on it
+        self.api = None
 
     # ---------- plumbing ----------
     def _authorized(self, request: Request) -> bool:
@@ -126,6 +129,13 @@ class Hub:
         return connection.respond(404, "not found\n")
 
     async def _broadcast(self, msg: dict) -> None:
+        for q in list(self.listeners):
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                self.listeners.discard(q)                   # a stream that can't keep up is dropped, never blocks the hub
+        changed, self._changed = self._changed, asyncio.Event()      # wake everyone waiting on a change, then arm a fresh event
+        changed.set()
         text = json.dumps(msg)
         for ws in list(self.uis):
             try:
@@ -208,7 +218,18 @@ class Hub:
             await self._finish_sub(sub, "done" if msg.get("ok", True) else "failed", str(msg.get("result", ""))[:4000])
 
     # ---------- jobs ----------
-    async def submit(self, request: str) -> Job | None:
+    def _find_node(self, name: str) -> Node | None:
+        q = name.strip().lower()
+        for n in self.nodes.values():
+            if n.name.lower() == q:
+                return n
+        for n in self.nodes.values():
+            if q and (q in n.name.lower() or n.name.lower() in q):
+                return n
+        return None
+
+    async def submit(self, request: str, computer: str = "") -> Job | None:
+        """Start a request. `computer` pins it to one machine; otherwise the planner decides."""
         request = request.strip()
         if not request:
             return None
@@ -216,7 +237,13 @@ class Hub:
         self.jobs[job.id] = job
         try:
             nodes = [n.public() for n in self.nodes.values()]
-            assignments = await make_plan(request, nodes, self.llm, self.default_node)
+            if computer.strip():
+                target = self._find_node(computer)
+                if target is None:
+                    raise NoNodes(f"{computer} is not online")
+                assignments = [Assignment(target.name, request, "you chose it")]
+            else:
+                assignments = await make_plan(request, nodes, self.llm, self.default_node)
         except NoNodes as e:
             job.state, job.result, job.ended = "failed", f"I can't do that right now: {e}.", time.time()
             await self._broadcast({"type": "job", "job": job.public()})
@@ -288,6 +315,21 @@ class Hub:
                     await self._send(node, {"type": "cancel", "sub": sub.id})
                 await self._finish_sub(sub, "cancelled", "Cancelled.")
 
+    async def wait_job(self, job_id: str, timeout: float) -> Job | None:
+        """Wait until the job finishes, or a computer is asking for approval, or `timeout` passes. Returns the job as it stands."""
+        job = self.jobs.get(job_id)
+        deadline = asyncio.get_running_loop().time() + timeout
+        while job and job.state == "running" and not any(s.approval for s in job.subs):
+            left = deadline - asyncio.get_running_loop().time()
+            if left <= 0:
+                break
+            changed = self._changed
+            try:
+                await asyncio.wait_for(changed.wait(), min(left, 5))
+            except asyncio.TimeoutError:
+                pass
+        return job
+
     async def approve(self, sub_id: str, ok: bool) -> None:
         sub = self.subs.get(sub_id)
         node = self.nodes.get(sub.node) if sub else None
@@ -326,18 +368,24 @@ class Hub:
         path = urlparse(ws.request.path).path
         await (self._node_handler(ws) if path == "/node" else self._ui_handler(ws))
 
-    async def start(self) -> None:
+    async def start(self, api_port: int | None = None) -> None:
+        if api_port is not None:
+            from voicectl.swarm.api import start_api
+            self.api = await start_api(self, self.host, api_port)
         self._server = await serve(self._handler, self.host, self.port, process_request=self._process_request,
                                    max_size=4 * 1024 * 1024, ping_interval=20, ping_timeout=30)
         log.info("Prometheus Swarm hub on http://%s:%d", self.host, self.bound_port)
 
     async def stop(self) -> None:
+        if self.api is not None:
+            await self.api.cleanup()
+            self.api = None
         if self._server:
             self._server.close()
             await self._server.wait_closed()
 
-    async def run(self) -> None:
-        await self.start()
+    async def run(self, api_port: int | None = None) -> None:
+        await self.start(api_port)
         await asyncio.Future()
 
     @property
