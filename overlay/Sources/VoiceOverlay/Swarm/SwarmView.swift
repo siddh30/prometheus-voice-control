@@ -10,13 +10,13 @@ struct SwarmWidget: View {
 
     var body: some View {
         Group {
-            if model.expanded || model.isWorking || model.typing { SwarmCard(model: model) } else { SwarmPill(model: model) }
+            if model.expanded || model.isBusy || model.typing { SwarmCard(model: model) } else { SwarmPill(model: model) }
         }
         .background(GeometryReader { g in Color.clear.preference(key: SizeKey.self, value: g.size) })
         .onPreferenceChange(SizeKey.self) { onSize($0) }
         .padding(16)
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.expanded)
-        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.isWorking)
+        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.isBusy)
     }
 }
 
@@ -56,13 +56,13 @@ struct SwarmCard: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Ribbons(palette: .agent, level: 0, phase: model.isWorking ? .acting : .idle).frame(height: 56)
+            Ribbons(palette: .agent, level: 0, phase: model.isWorking ? .acting : model.pending.isEmpty ? .idle : .thinking).frame(height: 56)
 
             HStack(spacing: 8) {
                 SwarmTag()
-                if model.isWorking { Spinner(color: accent) }
+                if model.isBusy { Spinner(color: accent) }
                 Text(model.stateLabel).font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.2)
-                    .foregroundStyle(model.connected ? Color.white.opacity(model.isWorking ? 0.92 : 0.5) : Color.orange.opacity(0.9)).lineLimit(1).fixedSize()
+                    .foregroundStyle(model.connected ? Color.white.opacity(model.isBusy ? 0.92 : 0.5) : Color.orange.opacity(0.9)).lineLimit(1).fixedSize()
                 Button { model.expanded = false; model.typing = false } label: {
                     Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.55))
                         .frame(width: 22, height: 22).background(Circle().fill(.white.opacity(0.08)))
@@ -89,10 +89,13 @@ struct SwarmCard: View {
             .onAppear { model.typing = true; DispatchQueue.main.async { focused = true } }
             .onDisappear { model.typing = false }
 
-            if model.devices.count > 1 {
+            if !model.notice.isEmpty {
+                Text(model.notice).font(.system(size: 10.5, design: .rounded)).foregroundStyle(.orange.opacity(0.9))
+            } else if model.devices.count > 1 {
                 Text("Add “on the mini” to choose a computer").font(.system(size: 9.5, design: .rounded)).foregroundStyle(.white.opacity(0.38))
             }
 
+            ForEach(model.pending) { PendingCard(request: $0) }
             ForEach(model.activeJobs) { JobCard(job: $0, model: model) }
         }
         .padding(.horizontal, 20).padding(.vertical, 16)
@@ -222,7 +225,7 @@ struct SubRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
-                Circle().fill(dot).frame(width: 7, height: 7)
+                if sub.state == "running" { Spinner(color: accent).scaleEffect(0.8).frame(width: 9, height: 9) } else { Circle().fill(dot).frame(width: 7, height: 7) }
                 Text(sub.node).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.white)
                 if !sub.why.isEmpty { Text(sub.why).font(.system(size: 10.5, design: .rounded)).foregroundStyle(.white.opacity(0.45)) }
             }
@@ -260,4 +263,40 @@ struct SubRow: View {
         switch sub.state { case "running": return accent; case "done": return .green; case "failed", "cancelled": return .red; default: return .white.opacity(0.4) }
     }
     private func line(_ s: String, _ c: Color) -> some View { Text(s).font(.system(size: 10.5, design: .rounded)).foregroundStyle(c).padding(.leading, 14) }
+}
+
+
+/// Shown the moment you press Go, until the hub has picked the request up (it is deciding who should do it).
+struct PendingCard: View {
+    let request: SwarmPending
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Spinner(color: accent)
+                Text("DECIDING WHO SHOULD DO THIS").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6).foregroundStyle(.white.opacity(0.55))
+            }
+            Text("“\(request.text)”").font(.system(size: 13, design: .rounded)).foregroundStyle(.white.opacity(0.92)).fixedSize(horizontal: false, vertical: true)
+            Shimmer().frame(height: 6).clipShape(Capsule())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.black.opacity(0.28)))
+        .transition(.opacity)
+    }
+}
+
+/// A soft light sweeping across a bar: "something is happening".
+struct Shimmer: View {
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            GeometryReader { g in
+                let x = (t * 0.8).truncatingRemainder(dividingBy: 1)
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(.white.opacity(0.07))
+                    Rectangle().fill(LinearGradient(colors: [.clear, accent.opacity(0.8), .clear], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: g.size.width * 0.4).offset(x: (g.size.width * 1.4) * x - g.size.width * 0.4)
+                }
+            }
+        }
+    }
 }

@@ -34,22 +34,34 @@ struct SwarmJob: Identifiable, Equatable {
     var subs: [SwarmSub]
 }
 
+/// A request that has been sent but not yet picked up by the hub (it is deciding who should do it). Shown as a loading card.
+struct SwarmPending: Identifiable, Equatable {
+    let id = UUID()
+    let text: String
+    let at: Date
+}
+
 @MainActor
 final class SwarmModel: ObservableObject {
     @Published var devices: [SwarmDevice] = []
     @Published var jobs: [SwarmJob] = []
-    @Published var connected = false
+    @Published var connected = false { didSet { if !connected { pending.removeAll() } } }
     @Published var expanded = false
     @Published var typing = false
+    @Published var pending: [SwarmPending] = []
+    @Published var notice = ""
     var send: ((String) -> Void)?
+    static let pendingLimit: TimeInterval = 25          // a loading card never outlives this: stuck animations are worse than no animation
 
     var working: Set<String> { Set(jobs.flatMap { $0.subs.filter { $0.state == "running" }.map { $0.node } }) }
     var isWorking: Bool { !working.isEmpty }
+    var isBusy: Bool { isWorking || !pending.isEmpty }
     var onlineCount: Int { devices.filter { $0.online }.count }
     var activeJobs: [SwarmJob] { Array(jobs.suffix(3).reversed()) }
     var stateLabel: String {
         if !connected { return "CONNECTING" }
         if isWorking { return "WORKING · \(working.count) DEVICE\(working.count > 1 ? "S" : "")" }
+        if !pending.isEmpty { return "PLANNING" }
         if devices.isEmpty { return "NO COMPUTERS" }
         return "\(onlineCount) OF \(devices.count) READY"
     }
@@ -58,7 +70,17 @@ final class SwarmModel: ObservableObject {
     func submit(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
+        guard connected else { say("Not connected to the hub yet. Try again in a moment."); return }
+        let p = SwarmPending(text: t, at: Date())
+        pending.append(p)
         post(["type": "submit", "text": t])
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pendingLimit) { [weak self] in self?.pending.removeAll { $0.id == p.id } }
+    }
+
+    /// A short message under the input, gone after a few seconds.
+    func say(_ message: String) {
+        notice = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in if self?.notice == message { self?.notice = "" } }
     }
     func cancel(_ job: String) { post(["type": "cancel", "job": job]) }
     func approve(_ sub: String, _ ok: Bool) { post(["type": "approve", "sub": sub, "ok": ok]) }
@@ -81,7 +103,11 @@ final class SwarmModel: ObservableObject {
         case "job":
             if let j = m["job"] as? [String: Any] {
                 let job = Self.job(j)
-                if let i = jobs.firstIndex(where: { $0.id == job.id }) { jobs[i] = job } else { jobs.append(job) }
+                if let i = jobs.firstIndex(where: { $0.id == job.id }) { jobs[i] = job }
+                else {
+                    jobs.append(job)
+                    if let k = pending.firstIndex(where: { $0.text == job.request }) { pending.remove(at: k) }     // the hub has it: stop the loading card
+                }
                 if job.state == "running" { expanded = true }
             }
         case "sub":

@@ -144,6 +144,7 @@ func renderSwarmSnapshots(to dir: String) {
     shot("1_pill") { $0.devices = two }
     shot("2_open_idle") { $0.devices = two; $0.expanded = true }
     shot("2b_one_computer") { $0.devices = [two[1]]; $0.expanded = true }
+    shot("2c_planning") { $0.devices = two; $0.expanded = true; $0.pending = [SwarmPending(text: "find me three ML roles and email me a summary", at: Date())] }
     shot("3_offline") { $0.devices = [two[0], SwarmDevice(name: "Mac mini", status: "offline", online: false)]; $0.expanded = true }
     shot("4_working") {
         $0.devices = [SwarmDevice(name: "MacBook", status: "busy", online: true), SwarmDevice(name: "Mac mini", status: "busy", online: true)]
