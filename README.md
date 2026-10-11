@@ -154,6 +154,11 @@ Expect real API spend: a long browsing session can cost on the order of a dollar
 ## Install
 
 ```sh
+# 0. Tools (one time; skip any you already have)
+xcode-select --install                                   # Swift, git
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"   # Homebrew
+brew install uv                                          # or: curl -LsSf https://astral.sh/uv/install.sh | sh
+
 git clone https://github.com/siddh30/prometheus-voice-control.git
 cd prometheus-voice-control
 
@@ -175,7 +180,7 @@ Then:
 2. **Turn on Chrome remote debugging:** in Chrome open `chrome://inspect/#remote-debugging` and enable it. The first time Prometheus drives the browser, Chrome shows an *Allow* prompt, once per app launch. Chrome will also show a "controlled by automated test software" banner while it works.
 3. Say **"Prometheus"**, or press **F10**.
 
-Pin the app to your Dock if you like. Tip: wearing headphones gives the best experience (no echo, so you can interrupt freely).
+**Dock or Desktop:** the app is installed at `~/Applications/Voice Control.app`. Drag it from Finder to the Dock to pin it, or hold **Option+Command** while dragging it to the Desktop to make a shortcut. Tip: wearing headphones gives the best experience (no echo, so you can interrupt freely).
 
 ## Using it
 
@@ -244,6 +249,8 @@ Details and the extension table are in [DESIGN.md](DESIGN.md).
 - **It doesn't hear me:** check the Microphone permission and your default input device. It re-opens the mic automatically if the device changes.
 - **"Credit balance is too low":** your Anthropic account is out of credit.
 - **Hotkeys do nothing:** grant Accessibility and Input Monitoring, then reopen the app.
+- **Permissions reset after every update:** without a signing certificate the app is signed ad hoc, and macOS treats each build as a new app. Create a code-signing certificate named `Voice Control Local Signing` in Keychain Access (Certificate Assistant > Create a Certificate, type *Code Signing*) and future builds keep their permissions.
+- **Updating:** `git pull`, quit the app, then `scripts/release.sh "update"` and reopen it.
 - **Stuck on "thinking":** click the new-conversation button, or say "new conversation". The previous run's log is `daemon.log.prev` in the data folder.
 
 ## License
