@@ -49,6 +49,10 @@ final class SwarmModel: ObservableObject {
     @Published var expanded = false
     @Published var typing = false
     @Published var pending: [SwarmPending] = []
+    @Published var draft = ""                          // what is typed (or spoken) in the box
+    var hovering = false                               // the pointer is over the widget: never shrink it under you
+    private(set) var lastActivity = Date()
+    static var restingAfter: TimeInterval = 14         // seconds of quiet after the work is done before it shrinks back to the pill
     @Published var notice = ""
     var send: ((String) -> Void)?
     static let pendingLimit: TimeInterval = 25          // a loading card never outlives this: stuck animations are worse than no animation
@@ -57,7 +61,16 @@ final class SwarmModel: ObservableObject {
     var isWorking: Bool { !working.isEmpty }
     var isBusy: Bool { isWorking || !pending.isEmpty }
     var onlineCount: Int { devices.filter { $0.online }.count }
-    var activeJobs: [SwarmJob] { Array(jobs.suffix(3).reversed()) }
+    /// Only the latest request is shown, so the widget never keeps growing.
+    var latestJob: SwarmJob? { jobs.last }
+    var moreRunning: Int { jobs.filter { $0.state == "running" && $0.id != latestJob?.id }.count }
+
+    func touch() { lastActivity = Date() }
+    /// Called every second: after the work is done and you have left it alone for a while, shrink back to the small pill.
+    func tick() {
+        guard expanded, !isBusy, !hovering, draft.isEmpty, pending.isEmpty else { return }
+        if Date().timeIntervalSince(lastActivity) > Self.restingAfter { expanded = false; typing = false }
+    }
     var stateLabel: String {
         if !connected { return "CONNECTING" }
         if isWorking { return "WORKING · \(working.count) DEVICE\(working.count > 1 ? "S" : "")" }
@@ -91,6 +104,7 @@ final class SwarmModel: ObservableObject {
 
     // ---- what the hub says ----
     func apply(_ m: [String: Any]) {
+        if m["type"] as? String != "snapshot" { touch() }
         switch m["type"] as? String {
         case "snapshot":
             devices = (m["nodes"] as? [[String: Any]] ?? []).map(Self.device)

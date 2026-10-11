@@ -315,11 +315,15 @@ class Hub:
                     await self._send(node, {"type": "cancel", "sub": sub.id})
                 await self._finish_sub(sub, "cancelled", "Cancelled.")
 
-    async def wait_job(self, job_id: str, timeout: float) -> Job | None:
-        """Wait until the job finishes, or a computer is asking for approval, or `timeout` passes. Returns the job as it stands."""
+    async def wait_job(self, job_id: str, timeout: float, after: int | None = None) -> Job | None:
+        """Wait until the job finishes, a computer is asking for approval, `timeout` passes, or (with `after`) MORE than `after` of its parts
+        have finished: that is how results are reported one by one, as each computer completes its part. Returns the job as it stands."""
         job = self.jobs.get(job_id)
         deadline = asyncio.get_running_loop().time() + timeout
+        finished = lambda: sum(1 for s in job.subs if s.state in ("done", "failed", "cancelled"))  # noqa: E731
         while job and job.state == "running" and not any(s.approval for s in job.subs):
+            if after is not None and finished() > after:
+                break
             left = deadline - asyncio.get_running_loop().time()
             if left <= 0:
                 break

@@ -211,7 +211,7 @@ Run Prometheus on more than one of your own Macs and control them all from one p
 3. **Share one secret:** the same `SWARM_TOKEN=<any long random string>` in `.env` on every computer. (For an installed app also add the line to `~/Library/Application Support/VoiceControl/.env`.)
 4. **Install:** `scripts/release.sh "swarm"` on each computer (installs Voice Control and Prometheus Swarm), then on the controller open **Prometheus Swarm** and pin it to the Dock; on the others run `scripts/swarm_node.sh install`. macOS may ask to allow local network access: choose Allow.
 
-Say or type things like "on the mini, download the report", "run the backup on both", or just "find me three ML roles": with no machine named, the planner picks by who is idle and what each computer is good for.
+Press the microphone in the widget and speak, or type: things like "on the mini, download the report", "run the backup on both", or just "find me three ML roles": with no machine named, the planner picks by who is idle and what each computer is good for. Work on several computers runs in parallel, and each result is reported as soon as that computer finishes. The widget shows only the latest request and shrinks back to a small pill by itself when the work is done.
 
 **The API.** The hub serves a small token-protected HTTP API (port 8781) that everything uses; you can call it too, for example from an iPhone Shortcut:
 

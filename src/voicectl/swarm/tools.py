@@ -67,31 +67,52 @@ def build_swarm_tools(base: str, token: str, bus=None, max_wait_s: float = 300.0
                          or "No computers are in the swarm.")
         return await safely(go())
 
+    reported: dict[str, int] = {}                       # job id -> how many of its parts the assistant has already been told about
+
+    async def follow(job: dict, seen: set[str]) -> dict[str, Any]:
+        """Wait for the next thing worth reporting: a computer finishing its part, the whole job finishing, or an approval."""
+        waited = 0.0
+        while waited < max_wait_s:
+            job = await call("GET", f"/api/jobs/{job['id']}/wait?timeout=20&after={reported.get(job['id'], 0)}")
+            waited += 20
+            if bus is not None:                                        # show the other computers' progress on this Mac's widget too
+                for s in job.get("subs", []):
+                    for st in s.get("steps", []):
+                        key = f"{s['id']}:{st['text']}"
+                        if st["text"] and key not in seen:
+                            seen.add(key)
+                            bus.publish("step", text=f"{s['node']}: {st['text']}", done=bool(st.get("done")), failed=bool(st.get("failed")))
+            asking = [s for s in job.get("subs", []) if s.get("approval")]
+            if asking:
+                s = asking[0]
+                return _text(f"{s['node']} is asking for approval: {s['approval']} (sub id {s['id']}). Ask the user, then call swarm_approve.")
+            ended = [s for s in job.get("subs", []) if s["state"] in ("done", "failed", "cancelled")]
+            if job["state"] != "running":
+                reported.pop(job["id"], None)
+                return _text(format_job(job), error=job["state"] == "failed")
+            if len(ended) > reported.get(job["id"], 0):                # one computer is done but others are still working: report it now
+                fresh = ended[reported.get(job["id"], 0):]
+                reported[job["id"]] = len(ended)
+                still = [s["node"] for s in job.get("subs", []) if s["state"] not in ("done", "failed", "cancelled")]
+                done = "\n".join(f"{s['node']} finished: {s['result'] or s['state']}" for s in fresh)
+                return _text(f"{done}\nStill working: {', '.join(still)}. Tell the user what has come back so far, then call swarm_wait "
+                             f"with job {job['id']} for the rest.")
+        return _text(f"Still running after {int(max_wait_s)} seconds (job {job['id']}). Tell the user, and check with swarm_status.")
+
     @tool("swarm_run", "Send a task to one of the user's computers (computer = its name, e.g. 'Mac mini') or, with computer empty, let the swarm "
-                       "choose and split the work. Use it when the user names another computer, asks for several, or the task belongs elsewhere. "
-                       "Waits for the result and returns it. The task must be self-contained.", {"task": str, "computer": str})
+                       "choose and split the work across computers that run IN PARALLEL. Use it when the user names another computer, asks for several, "
+                       "or the task belongs elsewhere. Returns as soon as the first computer finishes (the others keep working): report that "
+                       "result at once, then call swarm_wait for the rest. The task must be self-contained.", {"task": str, "computer": str})
     async def run(args):
         async def go():
             job = await call("POST", "/api/jobs", json={"text": args["task"], "computer": args.get("computer", "") or ""})
-            seen: set[str] = set()
-            waited = 0.0
-            while waited < max_wait_s:
-                job = await call("GET", f"/api/jobs/{job['id']}/wait?timeout=20")
-                waited += 20
-                if bus is not None:                                    # show the other computers' progress on this Mac's widget too
-                    for s in job.get("subs", []):
-                        for st in s.get("steps", []):
-                            key = f"{s['id']}:{st['text']}"
-                            if st["text"] and key not in seen:
-                                seen.add(key)
-                                bus.publish("step", text=f"{s['node']}: {st['text']}", done=bool(st.get("done")), failed=bool(st.get("failed")))
-                asking = [s for s in job.get("subs", []) if s.get("approval")]
-                if asking:
-                    s = asking[0]
-                    return _text(f"{s['node']} is asking for approval: {s['approval']} (sub id {s['id']}). Ask the user, then call swarm_approve.")
-                if job["state"] != "running":
-                    return _text(format_job(job), error=job["state"] == "failed")
-            return _text(f"Still running after {int(max_wait_s)} seconds (job {job['id']}). Tell the user, and check with swarm_status.")
+            return await follow(job, set())
+        return await safely(go())
+
+    @tool("swarm_wait", "Wait for the next computer to finish its part of a job started with swarm_run, or for the whole job to finish.", {"job": str})
+    async def wait(args):
+        async def go():
+            return await follow({"id": args["job"]}, set())
         return await safely(go())
 
     @tool("swarm_status", "Check a swarm job by its id.", {"job": str})
@@ -115,7 +136,7 @@ def build_swarm_tools(base: str, token: str, bus=None, max_wait_s: float = 300.0
             return _text("Cancelled.")
         return await safely(go())
 
-    return [computers, run, status, approve, cancel]
+    return [computers, run, wait, status, approve, cancel]
 
 
 def build_swarm_server(base: str, token: str, bus=None, max_wait_s: float = 300.0):

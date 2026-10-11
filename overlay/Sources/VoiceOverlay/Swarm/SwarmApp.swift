@@ -11,6 +11,7 @@ final class SwarmAppDelegate: NSObject, NSApplicationDelegate {
     var socket: SwarmSocket!
     var backend: SwarmBackend?
     var typingWatch: AnyCancellable?
+    var restTimer: Timer?
     var anchorX: CGFloat?, anchorY: CGFloat?
     var placing = false
     static let kX = "swarm.anchorX", kY = "swarm.anchorY"
@@ -52,6 +53,7 @@ final class SwarmAppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(userMoved), name: NSWindow.didMoveNotification, object: panel)
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         socket.start()
+        restTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.model.tick() } }
     }
 
     /// Stays put where you dragged it; the window hugs the widget and grows upward from its bottom edge.
@@ -161,4 +163,38 @@ func renderSwarmSnapshots(to dir: String) {
                             result: "Apple has three ML roles in Services Engineering; Bloomberg has two in the AI group.",
                             subs: [sub("a", "MacBook", "Found 3 Apple roles."), sub("b", "Mac mini", "Found 2 Bloomberg roles.")])]
     }
+}
+
+
+// ---- self-test of the widget's logic (no window needed): `VoiceOverlay --swarm-selftest` ----
+@MainActor
+func swarmSelfTest() -> Bool {
+    var failures: [String] = []
+    func check(_ ok: Bool, _ what: String) { if !ok { failures.append(what) } }
+    func job(_ id: String, _ req: String, _ state: String, sub: String = "done") -> [String: Any] {
+        ["id": id, "request": req, "state": state, "result": "r", "subs": [["id": id + "s", "job": id, "node": "Mac mini", "state": sub, "steps": [], "checklist": [], "result": "r"]]]
+    }
+    // only the latest request is shown
+    let m = SwarmModel(); m.connected = true
+    m.apply(["type": "snapshot", "nodes": [["name": "Mac mini", "status": "idle", "online": true]], "jobs": [job("a", "first", "done"), job("b", "second", "done")]])
+    check(m.latestJob?.request == "second" && m.moreRunning == 0, "shows only the latest job")
+    // shrinks back to the pill when the work is done and nobody is using it; never while busy, typing, or hovered
+    SwarmModel.restingAfter = 0.05
+    m.expanded = true; m.touch(); Thread.sleep(forTimeInterval: 0.1)
+    m.draft = "half a thought"; m.tick(); check(m.expanded, "stays open while something is typed")
+    m.draft = ""; m.hovering = true; m.tick(); check(m.expanded, "stays open while the pointer is over it")
+    m.hovering = false; m.apply(["type": "job", "job": job("c", "third", "running", sub: "running")]); Thread.sleep(forTimeInterval: 0.1); m.tick()
+    check(m.expanded && m.isBusy, "stays open while a computer is working")
+    m.apply(["type": "job", "job": job("c", "third", "done")]); Thread.sleep(forTimeInterval: 0.1); m.tick()
+    check(!m.expanded, "shrinks back to the pill once done and left alone")
+    SwarmModel.restingAfter = 14
+    // the loading card: shown on submit, cleared when the hub has the request, when the connection drops
+    let n = SwarmModel(); n.send = { _ in }
+    n.submit("hello"); check(n.pending.isEmpty && !n.notice.isEmpty, "no loading card, but a message, when not connected")
+    n.connected = true; n.submit("find roles"); check(n.pending.count == 1 && n.stateLabel == "PLANNING", "loading card on submit")
+    n.apply(["type": "job", "job": job("d", "find roles", "running", sub: "queued")]); check(n.pending.isEmpty, "loading card clears when the hub has it")
+    n.submit("another"); n.connected = false; check(n.pending.isEmpty, "loading card clears when the connection drops")
+    for f in failures { print("FAIL: \(f)") }
+    print(failures.isEmpty ? "swarm self-test: all passed" : "swarm self-test: \(failures.count) failed")
+    return failures.isEmpty
 }

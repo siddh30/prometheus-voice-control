@@ -34,7 +34,7 @@ SAFE_TOOLS = [
     "mcp__prometheus__checklist_set", "mcp__prometheus__checklist_update", "mcp__prometheus__computer_action",
     "mcp__memory__remember", "mcp__memory__forget", "mcp__memory__list_facts",
     "mcp__memory__learn", "mcp__memory__list_learnings", "mcp__memory__forget_learning",
-    "mcp__swarm__swarm_computers", "mcp__swarm__swarm_run", "mcp__swarm__swarm_status", "mcp__swarm__swarm_approve", "mcp__swarm__swarm_cancel",
+    "mcp__swarm__swarm_computers", "mcp__swarm__swarm_run", "mcp__swarm__swarm_wait", "mcp__swarm__swarm_status", "mcp__swarm__swarm_approve", "mcp__swarm__swarm_cancel",
 ]
 RISKY_WORDS = re.compile(r"\b(apply|submit|send|buy|purchase|pay|order|delete|publish|checkout|check out|transfer|place bet|donate|withdraw)\b", re.I)
 # Built-in tools that only read, search or keep notes: never worth interrupting you for.
@@ -155,6 +155,7 @@ def describe_tool(name: str, inp: dict[str, Any]) -> str:
         case "browser_media": return f"Video: {inp.get('action', '')}"
         case "swarm_computers": return "Checking your other computers"
         case "swarm_run": return f"Sending to {inp.get('computer') or 'the swarm'}: {str(inp.get('task', ''))[:50]}"
+        case "swarm_wait": return "Waiting for the next computer to finish"
         case "swarm_status" | "swarm_approve" | "swarm_cancel": return "Checking the swarm"
         case "browser_tabs": return "Checking open tabs"
         case "browser_switch_tab": return f"Switching to the {inp.get('query', '')} tab"

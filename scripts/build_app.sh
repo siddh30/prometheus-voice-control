@@ -83,6 +83,8 @@ cat > "$SW/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSLocalNetworkUsageDescription</key><string>Prometheus Swarm talks to the hub on your home network to show and control your computers.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Prometheus Swarm listens when you press the microphone, so you can speak to your swarm.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Prometheus Swarm turns what you say into text, on your Mac, to send to your swarm.</string>
 </dict></plist>
 PLIST
 if security find-identity -p codesigning | grep -q "$ID"; then

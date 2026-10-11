@@ -193,6 +193,9 @@ MainActor.assumeIsolated {
         renderSnapshots(to: CommandLine.arguments[i + 1])
         exit(0)
     }
+    if CommandLine.arguments.contains("--swarm-selftest") {
+        exit(swarmSelfTest() ? 0 : 1)
+    }
     if let i = CommandLine.arguments.firstIndex(of: "--swarm-icon"), i + 1 < CommandLine.arguments.count {
         _ = NSApplication.shared
         renderSwarmIcon(to: CommandLine.arguments[i + 1])

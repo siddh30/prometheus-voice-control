@@ -10,7 +10,7 @@ struct SwarmWidget: View {
 
     var body: some View {
         Group {
-            if model.expanded || model.isBusy || model.typing { SwarmCard(model: model) } else { SwarmPill(model: model) }
+            if model.expanded || model.isBusy { SwarmCard(model: model) } else { SwarmPill(model: model) }
         }
         .background(GeometryReader { g in Color.clear.preference(key: SizeKey.self, value: g.size) })
         .onPreferenceChange(SizeKey.self) { onSize($0) }
@@ -51,17 +51,18 @@ func color(_ d: SwarmDevice, _ working: Bool) -> Color { !d.online ? .white.opac
 
 struct SwarmCard: View {
     @ObservedObject var model: SwarmModel
-    @State private var text = ""
+    @StateObject private var speech = SwarmSpeech()
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 10) {
-            Ribbons(palette: .agent, level: 0, phase: model.isWorking ? .acting : model.pending.isEmpty ? .idle : .thinking).frame(height: 56)
+            Ribbons(palette: speech.listening ? .listening : .agent, level: speech.level,
+                    phase: speech.listening ? .listening : model.isWorking ? .acting : model.pending.isEmpty ? .idle : .thinking).frame(height: 56)
 
             HStack(spacing: 8) {
                 SwarmTag()
                 if model.isBusy { Spinner(color: accent) }
-                Text(model.stateLabel).font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.2)
+                Text(speech.listening ? "LISTENING" : model.stateLabel).font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.2)
                     .foregroundStyle(model.connected ? Color.white.opacity(model.isBusy ? 0.92 : 0.5) : Color.orange.opacity(0.9)).lineLimit(1).fixedSize()
                 Button { model.expanded = false; model.typing = false } label: {
                     Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.55))
@@ -74,20 +75,28 @@ struct SwarmCard: View {
             DeviceMap(devices: model.devices, working: model.working).frame(height: 128)
 
             HStack(spacing: 8) {
-                TextField("Tell the swarm what to do…", text: $text)
+                TextField(speech.listening ? "Listening…" : "Tell the swarm what to do…", text: $model.draft)
                     .textFieldStyle(.plain).font(.system(size: 13, design: .rounded)).foregroundStyle(.white)
                     .focused($focused)
-                    .onSubmit { model.submit(text); text = "" }
+                    .onSubmit { send() }
+                    .onChange(of: model.draft) { _ in model.touch() }
                     .onExitCommand { model.typing = false; model.expanded = false }
-                Button { model.submit(text); text = "" } label: {
+                Button { speak() } label: {
+                    Image(systemName: speech.listening ? "stop.fill" : "mic.fill").font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(speech.listening ? Color.white : .white.opacity(0.7))
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(speech.listening ? Color(red: 1.0, green: 0.30, blue: 0.40) : .white.opacity(0.10)))
+                }.buttonStyle(.plain).help(speech.listening ? "Stop listening" : "Speak to the swarm")
+                Button { send() } label: {
                     Text("Go").font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.white)
                         .padding(.horizontal, 14).padding(.vertical, 6).background(Capsule().fill(accent))
                 }.buttonStyle(.plain)
             }
             .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.10)))
-            .onAppear { model.typing = true; DispatchQueue.main.async { focused = true } }
+            .onAppear { model.typing = true; speech.problem = { model.say($0) }; DispatchQueue.main.async { focused = true } }
             .onDisappear { model.typing = false }
+            .onChange(of: speech.heard) { if speech.listening { model.draft = $0 } }
 
             if !model.notice.isEmpty {
                 Text(model.notice).font(.system(size: 10.5, design: .rounded)).foregroundStyle(.orange.opacity(0.9))
@@ -96,16 +105,33 @@ struct SwarmCard: View {
             }
 
             ForEach(model.pending) { PendingCard(request: $0) }
-            ForEach(model.activeJobs) { JobCard(job: $0, model: model) }
+            if let job = model.latestJob { JobCard(job: job, model: model) }
+            if model.moreRunning > 0 {
+                Text("+\(model.moreRunning) more running").font(.system(size: 10, weight: .semibold, design: .rounded)).foregroundStyle(accent.opacity(0.8))
+            }
         }
         .padding(.horizontal, 20).padding(.vertical, 16)
         .frame(width: 440)
+        .onHover { model.hovering = $0; if $0 { model.touch() } }
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(red: 0.08, green: 0.09, blue: 0.10).opacity(0.93)))
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(accent.opacity(model.isWorking ? 0.6 : 0.35), lineWidth: 1.2))
         )
+    }
+}
+
+extension SwarmCard {
+    func send() {
+        model.touch()
+        let t = model.draft
+        model.draft = ""
+        model.submit(t)
+    }
+    func speak() {
+        model.touch(); model.expanded = true
+        speech.toggle { text in model.draft = ""; model.submit(text) }
     }
 }
 
@@ -209,7 +235,8 @@ struct JobCard: View {
             ForEach(job.subs) { SubRow(sub: $0, model: model) }
             if job.subs.count > 1, !job.result.isEmpty {
                 Divider().overlay(.white.opacity(0.1))
-                Text(job.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Text(job.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92)).lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).help(job.result)
             } else if job.subs.isEmpty, !job.result.isEmpty {
                 Text(job.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.orange.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
             }
@@ -234,7 +261,7 @@ struct SubRow: View {
                 HStack(spacing: 5) { Image(systemName: "arrow.right").font(.system(size: 8, weight: .bold)); Text(now.text).lineLimit(1).truncationMode(.middle) }
                     .font(.system(size: 10.5, design: .rounded)).foregroundStyle(accent.opacity(0.9)).padding(.leading, 14)
             }
-            ForEach(Array(sub.checklist.enumerated()), id: \.offset) { _, c in
+            ForEach(Array(sub.checklist.prefix(6).enumerated()), id: \.offset) { _, c in
                 HStack(spacing: 6) {
                     Image(systemName: c.status == "done" ? "checkmark.circle.fill" : c.status == "in_progress" ? "circle.dotted" : "circle")
                         .foregroundStyle(c.status == "done" ? Color.green : c.status == "in_progress" ? accent : .white.opacity(0.35)).font(.system(size: 10))
@@ -254,8 +281,8 @@ struct SubRow: View {
                 }.padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.yellow.opacity(0.14))).padding(.leading, 14)
             }
             if !sub.result.isEmpty, sub.state != "running" {
-                Text(sub.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled).padding(.leading, 14)
+                Text(sub.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.9)).lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(.leading, 14).help(sub.result)
             }
         }
     }

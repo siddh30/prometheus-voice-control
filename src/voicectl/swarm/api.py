@@ -7,7 +7,8 @@ siblings, a phone, an iPhone Shortcut). It is a thin skin over the hub; it holds
   GET  /api/computers                         who is online and what they are doing
   POST /api/jobs        {text, computer?}     start a task (the planner picks the computer unless one is named)
   GET  /api/jobs/{id}                         the job as it stands
-  GET  /api/jobs/{id}/wait?timeout=30         wait for it to finish (or to need approval), then return it
+  GET  /api/jobs/{id}/wait?timeout=30[&after=N]  wait for it to finish, to need approval, or (with after) for more than N of its
+                                              parts to finish; then return it
   POST /api/jobs/{id}/cancel
   POST /api/subs/{id}/approve  {ok}
   GET  /api/events                            live stream (server-sent events)
@@ -66,7 +67,8 @@ def build_app(hub) -> web.Application:
 
     async def wait_job(request: web.Request):
         timeout = max(0.0, min(float(request.query.get("timeout", 30)), 120.0))
-        job = await hub.wait_job(request.match_info["id"], timeout)
+        after = int(request.query["after"]) if "after" in request.query else None
+        job = await hub.wait_job(request.match_info["id"], timeout, after)
         return web.json_response(job.public()) if job else web.json_response({"error": "no such job"}, status=404)
 
     async def cancel_job(request: web.Request):
@@ -121,7 +123,7 @@ class ApiServer:
 
 
 async def start_api(hub, host: str, port: int) -> ApiServer:
-    runner = web.AppRunner(build_app(hub), access_log=None)
+    runner = web.AppRunner(build_app(hub), access_log=None, shutdown_timeout=1.0)     # open event streams must not hold a shutdown up
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()

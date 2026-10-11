@@ -348,7 +348,7 @@ async def test_the_voice_tools_send_work_to_the_swarm_and_report_back_and_fail_p
                 if ev.type == "step": steps.append(ev.data["text"])
         w = asyncio.create_task(watch()); await asyncio.sleep(0)
         tools = {t.name: t for t in build_swarm_tools(base, "s3cret", bus)}
-        assert set(tools) == {"swarm_computers", "swarm_run", "swarm_status", "swarm_approve", "swarm_cancel"}
+        assert set(tools) == {"swarm_computers", "swarm_run", "swarm_wait", "swarm_status", "swarm_approve", "swarm_cancel"}
         listing = await tools["swarm_computers"].handler({})
         assert "Mac mini: idle" in listing["content"][0]["text"]
         run = asyncio.create_task(tools["swarm_run"].handler({"task": "find three roles", "computer": "Mac mini"}))
@@ -378,3 +378,26 @@ async def test_an_agent_that_is_itself_a_swarm_task_gets_no_swarm_tools_so_work_
     assert AgentRunner(cfg, EventBus(), Memory(tmp_path / "b.db"), swarm_tools=False)._swarm_server() == {}
     off = Config({"swarm": {"enabled": False}, "browser": {"backend": "playwright"}})
     assert AgentRunner(off, EventBus(), Memory(tmp_path / "c.db"))._swarm_server() == {}
+
+
+async def test_parallel_work_is_reported_as_each_computer_finishes_not_all_at_the_end():
+    import re
+    from voicectl.swarm.tools import build_swarm_tools
+    hub, base = await api_hub()
+    try:
+        mac, mini = await node_peer(hub, "MacBook"), await node_peer(hub, "Mac mini")
+        tools = {t.name: t for t in build_swarm_tools(base, "s3cret")}
+        run = asyncio.create_task(tools["swarm_run"].handler({"task": "run the backup on both", "computer": ""}))
+        t1, t2 = await mac.get("task"), await mini.get("task")                                      # both started at once, in parallel
+        await mac.send(type="done", sub=t1["sub"], ok=True, result="MacBook backup finished")
+        first = (await asyncio.wait_for(run, 10))["content"][0]["text"]                              # returns at the FIRST one, not at the end
+        assert "MacBook finished: MacBook backup finished" in first and "Still working: Mac mini" in first and "swarm_wait" in first
+        job = re.search(r"job (\w+)", first).group(1)
+        assert hub.jobs[job].state == "running"                                                      # the other computer is still going
+        nxt = asyncio.create_task(tools["swarm_wait"].handler({"job": job}))
+        await asyncio.sleep(0.2)
+        await mini.send(type="done", sub=t2["sub"], ok=True, result="Mac mini backup finished")
+        last = (await asyncio.wait_for(nxt, 10))["content"][0]["text"]
+        assert "MacBook" in last and "Mac mini" in last and hub.jobs[job].state == "done"            # then the combined result
+    finally:
+        await hub.stop()
