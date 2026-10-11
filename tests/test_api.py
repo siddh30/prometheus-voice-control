@@ -63,3 +63,31 @@ async def test_the_same_command_keeps_its_order():
     await asyncio.sleep(0.3)
     assert seen == ["first", "second"]
     task.cancel()
+
+
+def test_every_event_the_daemon_publishes_is_in_the_contract():
+    import pathlib, re
+    from voicectl.api import EVENTS
+    found = set()
+    for p in pathlib.Path("src/voicectl").rglob("*.py"):
+        found |= set(re.findall(r'publish\(\s*["\']([a-z_]+)["\']', p.read_text()))
+    found.discard("ui_command")                                                   # the widget -> daemon direction, see COMMANDS
+    assert found and found <= set(EVENTS), f"published but not in api/events.py: {found - set(EVENTS)}"
+
+
+def test_every_event_the_widget_understands_is_in_the_contract():
+    import pathlib, re
+    from voicectl.api import EVENTS
+    model = pathlib.Path("overlay/Sources/VoiceOverlay/Model.swift").read_text()
+    body = model[model.index("func handle(type:"):model.index("private var lastPhaseChange")]
+    handled = set(re.findall(r'case "([a-z_]+)"', body))
+    assert handled and handled <= set(EVENTS), f"the widget handles events the daemon never defines: {handled - set(EVENTS)}"
+
+
+def test_event_payloads_are_checked_against_the_contract():
+    from voicectl.api import validate_event
+    assert validate_event("state", {"state": "idle", "mode": None}) is None
+    assert validate_event("step", {"text": "Opened Gmail", "done": True}) is None
+    assert validate_event("step", {"done": True}) == "step: missing 'text'"
+    assert "wrong type" in validate_event("voice", {"on": "yes"})
+    assert "unknown event type" in validate_event("sparkles", {})
