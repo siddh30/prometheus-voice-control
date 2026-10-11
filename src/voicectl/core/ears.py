@@ -66,7 +66,7 @@ class Ears:
         started, echo = False, []
         engaged, engaged_at, fed, was_active = False, 0.0, 0, False
         restarts: deque[float] = deque(maxlen=3)
-        silent_warned = False     # engaged: you talked over us; fed: how much audio the echo detector has seen
+        silent_warned = silent_reopened = False     # engaged: you talked over us; fed: how much audio the echo detector has seen
         tentative: tuple[int, asyncio.Task] | None = None      # (speech end it was started for, transcription)
         self.mic.start()
         running = True
@@ -96,11 +96,20 @@ class Ears:
                     continue
                 if hasattr(self.mic, "silent_for"):
                     quiet = self.mic.silent_for()
-                    if quiet > 6.0 and not silent_warned:
+                    if quiet > 2.5 and not silent_reopened:
+                        # A USB or Bluetooth microphone that starts returning pure silence usually comes back when it is opened again: do that
+                        # at once instead of leaving "Listening" on screen with nothing arriving.
+                        silent_reopened = True
+                        now = self.clock()
+                        if len([t for t in restarts if now - t < 60]) < 3:
+                            restarts.append(now)
+                            self.mic.restart()
+                            self.on_mic_problem("restarted")
+                    elif quiet > 6.0 and not silent_warned:
                         silent_warned = True
                         self.on_mic_problem("silent")
                     elif quiet < 1.0:
-                        silent_warned = False
+                        silent_warned = silent_reopened = False
                 tail, total = self.mic.tail(window)
                 active = self.speaker_active()
                 if self.talk_over is not None and active and not engaged:

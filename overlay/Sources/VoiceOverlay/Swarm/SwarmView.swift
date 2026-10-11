@@ -10,6 +10,7 @@ struct DeviceMap: View {
     let devices: [SwarmDevice]
     let working: Set<String>
     var selected: Set<String> = []
+    var youWorking = false                      // this computer's own assistant is working (no other computer is): same pulse as any other
     var onTap: ((String) -> Void)? = nil
 
     var body: some View {
@@ -26,7 +27,7 @@ struct DeviceMap: View {
                             .stroke(on ? accent : .white.opacity(d.online ? 0.16 : 0.07),
                                     style: StrokeStyle(lineWidth: on ? 2 : 1.4, dash: on ? [6, 8] : d.online ? [] : [3, 6], dashPhase: on ? CGFloat(-t * 30) : 0))
                     }
-                    Orb(label: "YOU", sub: "THIS MAC", ring: accent, glyph: nil, pulse: false, t: t).position(me)
+                    Orb(label: "YOU", sub: "THIS MAC", ring: accent, glyph: nil, pulse: youWorking, t: t).position(me)
                     ForEach(Array(devices.enumerated()), id: \.element.id) { i, d in
                         let on = working.contains(d.name)
                         Orb(label: d.name, sub: !d.online ? "OFFLINE" : on ? "WORKING" : selected.contains(d.name) ? "SENDING HERE" : "READY", ring: color(d, on),
@@ -95,14 +96,15 @@ struct Orb: View {
     }
 }
 
+/// The plan, and nothing else: which computer is doing what, step by step. Not the request again (you just said it) and not the answer (the
+/// assistant says it, once, below). It appears while work is running (or needs you, or failed) and goes away when the work is done.
 struct JobCard: View {
     let job: SwarmJob
     @ObservedObject var model: SwarmModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(job.state == "running" ? "IN PROGRESS" : job.state.uppercased()).font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6)
-                    .foregroundStyle(.white.opacity(0.5))
+                Text("PLAN").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6).foregroundStyle(.white.opacity(0.5))
                 Spacer()
                 if job.state == "running" {
                     Button { model.cancel(job.id) } label: {
@@ -111,13 +113,8 @@ struct JobCard: View {
                     }.buttonStyle(.plain)
                 }
             }
-            Text("“\(job.request)”").font(.system(size: 13, design: .rounded)).foregroundStyle(.white.opacity(0.92)).fixedSize(horizontal: false, vertical: true)
             ForEach(job.subs) { SubRow(sub: $0, model: model) }
-            if job.subs.count > 1, !job.result.isEmpty {
-                Divider().overlay(.white.opacity(0.1))
-                Text(job.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92)).lineLimit(6)
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).help(job.result)
-            } else if job.subs.isEmpty, !job.result.isEmpty {
+            if job.subs.isEmpty, !job.result.isEmpty {
                 Text(job.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.orange.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -134,7 +131,6 @@ struct SubRow: View {
             HStack(spacing: 7) {
                 if sub.state == "running" { Spinner(color: accent).scaleEffect(0.8).frame(width: 9, height: 9) } else { Circle().fill(dot).frame(width: 7, height: 7) }
                 Text(sub.node).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                if !sub.why.isEmpty { Text(sub.why).font(.system(size: 10.5, design: .rounded)).foregroundStyle(.white.opacity(0.45)) }
             }
             if sub.state == "queued" { line("waiting its turn", .white.opacity(0.45)) }
             if sub.state == "running", let now = sub.steps.last(where: { !$0.done }) {
@@ -145,7 +141,7 @@ struct SubRow: View {
                 HStack(spacing: 6) {
                     Image(systemName: c.status == "done" ? "checkmark.circle.fill" : c.status == "in_progress" ? "circle.dotted" : "circle")
                         .foregroundStyle(c.status == "done" ? Color.green : c.status == "in_progress" ? accent : .white.opacity(0.35)).font(.system(size: 10))
-                    Text(c.text).font(.system(size: 11.5, weight: c.status == "in_progress" ? .semibold : .regular, design: .rounded))
+                    Text(c.text).lineLimit(1).font(.system(size: 11.5, weight: c.status == "in_progress" ? .semibold : .regular, design: .rounded))
                         .foregroundStyle(.white.opacity(c.status == "done" ? 0.5 : 0.92))
                 }.padding(.leading, 14)
             }
@@ -160,9 +156,9 @@ struct SubRow: View {
                     }
                 }.padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.yellow.opacity(0.14))).padding(.leading, 14)
             }
-            if !sub.result.isEmpty, sub.state != "running" {
-                Text(sub.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.9)).lineLimit(6)
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(.leading, 14).help(sub.result)
+            if sub.state == "failed", !sub.result.isEmpty {                       // a failure is worth saying; a success is said by the assistant
+                Text(sub.result).font(.system(size: 11.5, design: .rounded)).foregroundStyle(.orange.opacity(0.9)).lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true).padding(.leading, 14)
             }
         }
     }
@@ -171,5 +167,3 @@ struct SubRow: View {
     }
     private func line(_ s: String, _ c: Color) -> some View { Text(s).font(.system(size: 10.5, design: .rounded)).foregroundStyle(c).padding(.leading, 14) }
 }
-
-

@@ -21,7 +21,7 @@ final class SwarmSocket {
     var hubURL: URL? {
         let raw = override ?? (try? String(contentsOf: urlFile, encoding: .utf8)).flatMap { URL(string: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         guard let url = raw, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        if let host = parts.host, Host.current().addresses.contains(host) { parts.host = "localhost" }
+        if let host = parts.host, LocalAddresses.contains(host) { parts.host = "localhost" }
         return parts.url
     }
 
@@ -68,5 +68,35 @@ final class SwarmSocket {
         let wait = retry
         retry = min(retry * 1.7, 10)
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.connect() }
+    }
+}
+
+
+/// This Mac's own network addresses, read straight from the system (instant). `Host.current().addresses`, which this replaces, does network
+/// lookups and can block the whole app for seconds, so it must never run on the main thread or on every reconnect.
+enum LocalAddresses {
+    nonisolated(unsafe) private static var cache: (when: Date, list: Set<String>)?
+
+    static func contains(_ host: String) -> Bool {
+        if host == "localhost" || host == "127.0.0.1" { return true }
+        if let c = cache, Date().timeIntervalSince(c.when) < 30 { return c.list.contains(host) }
+        var found = Set<String>()
+        var head: UnsafeMutablePointer<ifaddrs>?
+        if getifaddrs(&head) == 0 {
+            var p = head
+            while let a = p {
+                let sa = a.pointee.ifa_addr
+                if let sa, sa.pointee.sa_family == UInt8(AF_INET) || sa.pointee.sa_family == UInt8(AF_INET6) {
+                    var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    if getnameinfo(sa, socklen_t(sa.pointee.sa_len), &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 {
+                        found.insert(String(cString: buf).components(separatedBy: "%").first ?? "")
+                    }
+                }
+                p = a.pointee.ifa_next
+            }
+            freeifaddrs(head)
+        }
+        cache = (Date(), found)
+        return found.contains(host)
     }
 }

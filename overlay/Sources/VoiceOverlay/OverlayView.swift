@@ -58,17 +58,12 @@ struct OverlayView: View {
 
             if !model.manualText.isEmpty { ManualChoice(model: model).transition(.opacity) }
 
-            if model.swarmActive && model.isActive { SwarmPanel(swarm: model.swarm).transition(.opacity) }
+            if model.swarmActive && model.isActive { SwarmPanel(swarm: model.swarm, youWorking: (model.phase == .acting || model.phase == .thinking) && model.swarm.working.isEmpty).transition(.opacity) }
 
             if model.typing { TypeBox(model: model).transition(.opacity) }
 
-            // In Swarm mode the swarm card already shows the request and each computer's answer: one text area, not three.
-            let swarmCard = model.swarmActive && model.swarm.latestJob != nil && model.isActive
-            if !model.transcript.isEmpty && !swarmCard {
+            if !model.transcript.isEmpty {
                 CaptionView(text: "“\(model.transcript)”").transition(.opacity)
-            }
-            if swarmCard, !model.result.isEmpty, model.result != model.swarm.latestJob?.result {      // a farewell or notice: one plain line
-                CaptionView(text: model.result).transition(.opacity)
             }
 
             if model.conversational && model.notice.isEmpty
@@ -97,7 +92,7 @@ struct OverlayView: View {
                     .multilineTextAlignment(.center).lineLimit(3).frame(maxWidth: 380)
             }
 
-            if model.expanded && !swarmCard { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
+            if model.expanded { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
         }
         .padding(.horizontal, 22).padding(.vertical, model.isActive ? 16 : 10)
         .frame(minWidth: model.isActive ? model.cardWidth : nil)
@@ -354,15 +349,16 @@ struct SwarmModeButton: View {
 /// The devices map and the latest request, shown while Swarm mode is on.
 struct SwarmPanel: View {
     @ObservedObject var swarm: SwarmModel
+    var youWorking = false
     var body: some View {
         VStack(spacing: 8) {
             if !swarm.connected {
-                Text("Connecting to your other computers…").font(.system(size: 11, design: .rounded)).foregroundStyle(.orange.opacity(0.9))
+                Text("Can't reach your other computers yet. Retrying…").font(.system(size: 11, design: .rounded)).foregroundStyle(.orange.opacity(0.9))
             } else {
-                DeviceMap(devices: swarm.devices, working: swarm.working, selected: swarm.targets, onTap: { swarm.toggleTarget($0) }).frame(height: 128)
+                DeviceMap(devices: swarm.devices, working: swarm.working, selected: swarm.targets, youWorking: youWorking, onTap: { swarm.toggleTarget($0) }).frame(height: 128)
                 HStack(spacing: 6) {
                     Text(swarm.targets.isEmpty ? "AUTO: the swarm decides · tap a computer to choose" : "SENDING TO \(swarm.targets.sorted().joined(separator: ", ").uppercased())")
-                        .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(0.8).foregroundStyle(swarm.targets.isEmpty ? .white.opacity(0.4) : accent)
+                        .lineLimit(1).font(.system(size: 9, weight: .bold, design: .rounded)).tracking(0.8).foregroundStyle(swarm.targets.isEmpty ? .white.opacity(0.4) : accent)
                     if !swarm.targets.isEmpty {
                         Text("AUTO").font(.system(size: 8, weight: .bold, design: .rounded)).tracking(1)
                             .padding(.horizontal, 7).padding(.vertical, 3).background(Capsule().fill(.white.opacity(0.12))).foregroundStyle(.white.opacity(0.8))
@@ -370,14 +366,15 @@ struct SwarmPanel: View {
                     }
                 }
             }
-            if let job = swarm.latestJob { JobCard(job: job, model: swarm) }
+            if let job = swarm.latestJob, job.state == "running" || job.subs.contains(where: { $0.state == "failed" || !$0.approval.isEmpty }) {
+                JobCard(job: job, model: swarm)
+            }
             if swarm.moreRunning > 0 {
                 Text("+\(swarm.moreRunning) more running").font(.system(size: 10, weight: .semibold, design: .rounded)).foregroundStyle(accent.opacity(0.8))
             }
         }
     }
 }
-
 
 /// F9 in Swarm mode: you said something; now you choose where it goes. Picking a computer starts the assistant (agent mode) on it.
 struct ManualChoice: View {
