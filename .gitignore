@@ -27,6 +27,3 @@ overlay/.build/
 .DS_Store
 .claude/settings.local.json
 *.egg-info/
-
-# this computer's own settings
-config.local.yaml

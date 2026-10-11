@@ -25,7 +25,6 @@ struct OverlayView: View {
             HStack(spacing: 8) {
                 if let mode = model.mode, model.isActive {
                     Text(model.tag)
-                        .lineLimit(1).fixedSize()                                    // a name like PROMETHEUS is never broken across lines
                         .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6)
                         .padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Capsule().fill(model.palette.a.opacity(0.25)))
@@ -39,26 +38,13 @@ struct OverlayView: View {
                     .font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.4)
                     .foregroundStyle(model.connected ? Color.white.opacity(model.phase == .idle ? 0.45 : 0.9) : Color.orange.opacity(0.9))
                 if model.phase == .listening, let since = model.listenStart { ElapsedLabel(since: since) }
-                SwarmModeButton(on: model.swarmMode) { model.toggleSwarmMode() }
                 VoiceToggle(on: model.voiceOn) { model.toggleVoice() }
                 TypeButton(on: model.typing) { model.typing.toggle() }
                 NewChatButton { model.newConversation() }
                 FreshButton { model.startFresh() }
             }
-            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(Capsule().fill(.white.opacity(0.07)).overlay(Capsule().stroke(.white.opacity(0.10), lineWidth: 0.5)))
-
-            // Which key does what, in words: F9 types where your cursor is; F10 talks to the assistant (and in Swarm mode, to all your computers).
-            if model.phase == .listening || model.phase == .transcribing {
-                Text(model.mode == "dictate" ? (model.swarmMode ? "F9 · manual: speak, then choose where it goes" : "F9 · dictating: your words are typed where your cursor is")
-                     : model.swarmActive ? "F10 · swarm: say it once and it goes to your computers" : "")
-                    .font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.45))
-            }
-
-            if !model.manualText.isEmpty { ManualChoice(model: model).transition(.opacity) }
-
-            if model.swarmActive && model.isActive { SwarmPanel(swarm: model.swarm, youWorking: (model.phase == .acting || model.phase == .thinking) && model.swarm.working.isEmpty).transition(.opacity) }
 
             if model.typing { TypeBox(model: model).transition(.opacity) }
 
@@ -92,24 +78,22 @@ struct OverlayView: View {
                     .multilineTextAlignment(.center).lineLimit(3).frame(maxWidth: 380)
             }
 
-            // Three separate things, in order: what you said (above), the plan (this box, only when there is one), what it answers (below).
-            if model.expanded && model.hasPlan { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
-            if !model.result.isEmpty { CaptionView(text: model.result).transition(.opacity) }
+            if model.expanded { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
         }
         .padding(.horizontal, 22).padding(.vertical, model.isActive ? 16 : 10)
-        .frame(minWidth: model.isActive ? model.cardWidth : nil)
-        .fixedSize(horizontal: true, vertical: false)                  // the card is as wide as its widest row needs, never squeezed
+        .frame(width: model.isActive ? 440 : nil)
+        .fixedSize(horizontal: !model.isActive, vertical: false)       // idle pill hugs its text, whatever the label
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(red: 0.08, green: 0.09, blue: 0.10).opacity(0.96))     // near-solid (no live blur: blurring what is behind an animating window every frame loads the whole desktop)
+                .fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(red: 0.08, green: 0.09, blue: 0.10).opacity(0.93)))   // near-solid: reads the same on light and dark backgrounds
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(model.isActive ? model.palette.a.opacity(0.55) : .white.opacity(0.10), lineWidth: model.isActive ? 1.2 : 0.6))
         )
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.isActive)
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.expanded)
         .animation(.easeInOut(duration: 0.25), value: model.transcript)
-        .padding(6)
-        .background(GeometryReader { g in Color.clear.preference(key: SizeKey.self, value: g.size) })   // the window follows this size exactly
-        .onPreferenceChange(SizeKey.self) { onSize($0) }
+        .padding(20)
+        .frame(width: 480, height: 640, alignment: .bottom)
     }
 }
 
@@ -172,6 +156,16 @@ struct AgentPanel: View {
                     }
                 }
                 .padding(10).background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.07)))
+            }
+            if !model.result.isEmpty {
+                Divider().overlay(.white.opacity(0.1))
+                let body = Text(model.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92))
+                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                if model.result.count > 420 {                 // long answers scroll; short ones size to their text
+                    ScrollView { body }.frame(height: 150)
+                } else {
+                    body.fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -317,82 +311,5 @@ struct NewChatButton: View {
             .contentShape(Circle())
             .onTapGesture(perform: action)
             .help("New conversation: clean context, keeps what I know about you")
-    }
-}
-
-
-/// Single (this computer) or Swarm (all your computers): one tap. In Swarm mode the same voice and typing go straight to the agents on every
-/// computer, and the widget shows which of them are working.
-struct SwarmModeButton: View {
-    let on: Bool
-    let action: () -> Void
-    var body: some View {
-        Image(systemName: "point.3.connected.trianglepath.dotted")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(on ? Color.white : Color.white.opacity(0.6))
-            .frame(width: 22, height: 22)
-            .background(Circle().fill(on ? Color(red: 0.55, green: 0.40, blue: 1.0).opacity(0.85) : Color.white.opacity(0.08)))
-            .contentShape(Circle())
-            .onTapGesture(perform: action)
-            .help(on ? "Swarm mode: your request goes to all your computers. Click for single." : "Single: just this computer. Click to use all your computers.")
-    }
-}
-
-/// The devices map and the latest request, shown while Swarm mode is on.
-struct SwarmPanel: View {
-    @ObservedObject var swarm: SwarmModel
-    var youWorking = false
-    var body: some View {
-        VStack(spacing: 8) {
-            if !swarm.connected {
-                Text("Can't reach your other computers yet. Retrying…").font(.system(size: 11, design: .rounded)).foregroundStyle(.orange.opacity(0.9))
-            } else {
-                DeviceMap(devices: swarm.devices, working: swarm.working, selected: swarm.targets, youWorking: youWorking, onTap: { swarm.toggleTarget($0) }).frame(height: 128)
-                HStack(spacing: 6) {
-                    Text(swarm.targets.isEmpty ? "AUTO: the swarm decides · tap a computer to choose" : "SENDING TO \(swarm.targets.sorted().joined(separator: ", ").uppercased())")
-                        .lineLimit(1).font(.system(size: 9, weight: .bold, design: .rounded)).tracking(0.8).foregroundStyle(swarm.targets.isEmpty ? .white.opacity(0.4) : accent)
-                    if !swarm.targets.isEmpty {
-                        Text("AUTO").font(.system(size: 8, weight: .bold, design: .rounded)).tracking(1)
-                            .padding(.horizontal, 7).padding(.vertical, 3).background(Capsule().fill(.white.opacity(0.12))).foregroundStyle(.white.opacity(0.8))
-                            .onTapGesture { swarm.clearTargets() }
-                    }
-                }
-            }
-            if let job = swarm.latestJob, job.state == "running" || job.subs.contains(where: { $0.state == "failed" || !$0.approval.isEmpty }) {
-                JobCard(job: job, model: swarm)
-            }
-            if swarm.moreRunning > 0 {
-                Text("+\(swarm.moreRunning) more running").font(.system(size: 10, weight: .semibold, design: .rounded)).foregroundStyle(accent.opacity(0.8))
-            }
-        }
-    }
-}
-
-/// F9 in Swarm mode: you said something; now you choose where it goes. Picking a computer starts the assistant (agent mode) on it.
-struct ManualChoice: View {
-    @ObservedObject var model: OverlayModel
-    var body: some View {
-        VStack(spacing: 10) {
-            Text("“\(model.manualText)”").font(.system(size: 13, design: .rounded)).foregroundStyle(.white.opacity(0.92))
-                .multilineTextAlignment(.center).lineLimit(4).frame(maxWidth: 380)
-            Text("SEND IT TO").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6).foregroundStyle(.white.opacity(0.45))
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
-                ForEach(model.swarm.devices.filter { $0.online }) { d in
-                    chip(d.name, systemImage: d.name.lowercased().contains("mini") ? "desktopcomputer" : "laptopcomputer", strong: true) { model.dispatchManual(d.name) }
-                }
-                chip("Auto", systemImage: "point.3.connected.trianglepath.dotted", strong: true) { model.dispatchManual("__auto__") }
-                chip("Type here", systemImage: "keyboard", strong: false) { model.dispatchManual("__here__") }
-                chip("Cancel", systemImage: "xmark", strong: false) { model.dispatchManual("__cancel__") }
-            }
-        }
-        .frame(maxWidth: 400)
-    }
-    private func chip(_ title: String, systemImage: String, strong: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage).font(.system(size: 11, weight: .semibold, design: .rounded)).lineLimit(1).fixedSize()
-                .foregroundStyle(strong ? Color.white : Color.white.opacity(0.75))
-                .padding(.horizontal, 12).padding(.vertical, 7).frame(maxWidth: .infinity)
-                .background(Capsule().fill(strong ? accent.opacity(0.75) : Color.white.opacity(0.10)))
-        }.buttonStyle(.plain)
     }
 }

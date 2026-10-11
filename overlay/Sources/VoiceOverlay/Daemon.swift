@@ -1,11 +1,10 @@
-import AppKit
 import Foundation
 
 /// When running inside Voice Control.app, the app owns the Python daemon (and Phoenix) so a single
 /// Dock icon starts and stops everything. The project root is baked into the bundle at build time.
 final class DaemonSupervisor {
     private let root: URL
-    let dataDir: URL                           // where logs and memory live: per profile, never inside a release folder
+    private let dataDir: URL                   // where logs and memory live: per profile, never inside a release folder
     private let phoenixDir: URL
     private var daemon: Process?
     private var phoenix: Process?
@@ -33,17 +32,6 @@ final class DaemonSupervisor {
         stopping = true
         daemon?.terminate()
         phoenix?.terminate()
-    }
-
-    /// Opens the Prometheus Swarm dashboard (the hub writes its address, with the shared token, next to the data).
-    func openSwarm() {
-        let file = dataDir.appendingPathComponent("swarm_url.txt")
-        guard let text = try? String(contentsOf: file, encoding: .utf8),
-              let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
-        // On this computer use localhost: it works even when the network address changes.
-        var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        parts?.host = "localhost"
-        NSWorkspace.shared.open(parts?.url ?? url)
     }
 
     func restartDaemon() {

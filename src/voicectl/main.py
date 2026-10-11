@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 
@@ -92,28 +91,6 @@ async def run() -> None:
                 log.info("%s", await maint.new_conversation(forget_conversation))
     newchat_task = asyncio.create_task(ui_newchat())
 
-    def _load_prefs() -> dict:
-        try:
-            return json.loads((DATA_DIR / "prefs.json").read_text())
-        except (OSError, ValueError):
-            return {}
-    ctx.shared["swarm_mode"] = bool(_load_prefs().get("swarm_mode", False)) and bool(config.get("swarm.enabled", False))
-    ctx.shared["swarm_targets"] = []
-
-    async def ui_swarm() -> None:
-        async for ev in bus.subscribe():
-            if ev.type != "ui_command" or primary not in mode_objs or not hasattr(mode_objs[primary], "set_swarm_mode"):
-                continue
-            if ev.data.get("command") == "swarm_mode":
-                if ev.data.get("on") and not config.get("swarm.enabled", False):
-                    bus.publish("notice", text="Swarm isn't set up on this computer yet. See the README, section Prometheus Swarm.")
-                mode_objs[primary].set_swarm_mode(bool(ev.data.get("on")) and bool(config.get("swarm.enabled", False)))
-            elif ev.data.get("command") == "swarm_target":
-                mode_objs[primary].set_swarm_targets(list(ev.data.get("computers", [])))
-            elif ev.data.get("command") == "swarm_dispatch":              # F9 (manual): the user chose where the transcribed request goes
-                await mode_objs[primary].dispatch_manual(session, str(ev.data.get("text", "")), str(ev.data.get("computer", "")))
-    swarm_ui_task = asyncio.create_task(ui_swarm())
-
     async def ui_voice() -> None:
         async for ev in bus.subscribe():
             if ev.type == "ui_command" and ev.data.get("command") == "voice":
@@ -136,9 +113,7 @@ async def run() -> None:
 
     bridge = UIBridge(bus, config.get("ui.ws_host", "127.0.0.1"), config.get("ui.ws_port", 8765),
                       hello={"hotkeys": hotkey_map, "cancel": cancel_key},
-                      snapshot=lambda: [{"type": "voice", "data": {"on": speaker.voice_on}},
-                                        {"type": "swarm_mode", "data": {"on": bool(ctx.shared.get("swarm_mode", False))}},
-                                        {"type": "swarm_target", "data": {"computers": ctx.shared.get("swarm_targets", [])}}])
+                      snapshot=lambda: [{"type": "voice", "data": {"on": speaker.voice_on}}])
     bridge_task = asyncio.create_task(bridge.run())
 
     async def log_events() -> None:
@@ -159,7 +134,6 @@ async def run() -> None:
         import copy
         wake_cfg = copy.deepcopy(config.raw)
         wake_cfg.setdefault("stt", {}).setdefault("faster_whisper", {})["model"] = config.get("wake_word.model", "base.en")
-        wake_cfg["stt"].setdefault("faster_whisper", {})["cpu_threads"] = 2     # the always-on listener must not hog every core
         wake_cfg["stt"]["backend"] = "faster_whisper"          # always local: this listens to the room all day, nothing may leave the Mac
         wake_stt = backends.get("faster_whisper")(type(config)(wake_cfg))
         await asyncio.to_thread(wake_stt.warm_up)
@@ -179,18 +153,6 @@ async def run() -> None:
                 else:
                     session.wake(primary, typed)                          # not in a conversation yet: start one with your message
     text_task = asyncio.create_task(ui_text())
-
-    if config.get("swarm.enabled", False):
-        try:
-            from voicectl.swarm import lock as swarm_lock
-            if not swarm_lock.try_acquire(DATA_DIR):          # the Prometheus Swarm app's own backend already runs it: nothing to do here
-                log.info("the swarm already runs here (pid %s, the Prometheus Swarm app); not starting a second one", swarm_lock.holder(DATA_DIR))
-            else:
-                from voicectl.agents.shared import runner_for
-                from voicectl.swarm.wiring import start_swarm
-                swarm_tasks = start_swarm(config, ctx, lambda: ctx.shared.get("agent_runner") or runner_for(ctx, "prometheus_prompt.txt"), bus)
-        except Exception:
-            log.exception("Prometheus Swarm could not start; carrying on without it")
 
     async def ui_wake_toggle() -> None:
         async for ev in bus.subscribe():
@@ -216,16 +178,7 @@ async def run() -> None:
             wake.stop()
 
 
-def _be_polite() -> None:
-    """The voice assistant works in the background: give the desktop priority, so the screen and keyboard never wait for speech models."""
-    try:
-        os.nice(8)
-    except OSError:
-        pass
-
-
 def main() -> None:
-    _be_polite()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     try:
         asyncio.run(run())

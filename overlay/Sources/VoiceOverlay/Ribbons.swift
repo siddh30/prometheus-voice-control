@@ -7,7 +7,7 @@ struct Ribbons: View {
     let phase: Phase
 
     var body: some View {
-        TimelineView(UIMotion.full) { tl in
+        TimelineView(.animation) { tl in
             Canvas { ctx, size in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 let w = size.width, h = size.height, mid = h / 2

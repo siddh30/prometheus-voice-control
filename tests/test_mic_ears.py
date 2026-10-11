@@ -285,31 +285,15 @@ async def test_the_ears_restart_a_stalled_mic_and_say_so_but_only_a_few_times_a_
     assert problems.count("restarted") == 3 and "unavailable" in problems
 
 
-async def test_a_mic_that_returns_only_silence_is_reopened_at_once_and_reported_once_if_it_stays_silent():
+async def test_a_silent_mic_is_reported_once():
     class M(SnapMic):
-        def __init__(self): super().__init__(); self.restarts = 0
-        def silent_for(self): return 9.0                 # still pure silence even after reopening
-        def restart(self): self.restarts += 1
-    mic, problems = M(), []
-    ears = Ears(mic, lambda b: RelVad(b), lambda: False, poll_s=0.002, on_mic_problem=problems.append)
+        def silent_for(self): return 9.0
+    problems = []
+    ears = Ears(M(), lambda b: RelVad(b), lambda: False, poll_s=0.002, on_mic_problem=problems.append)
     task = asyncio.create_task(ears.run())
     await asyncio.sleep(0.3)
     task.cancel(); await asyncio.gather(task, return_exceptions=True)
-    assert mic.restarts == 1                              # tried reopening it, once, straight away (a USB mic usually comes back)
-    assert problems == ["restarted", "silent"]            # then, still silent: one clear report, not a stream of them
-
-
-async def test_a_mic_that_is_only_briefly_quiet_is_left_alone():
-    class M(SnapMic):
-        def __init__(self): super().__init__(); self.restarts = 0
-        def silent_for(self): return 1.8
-        def restart(self): self.restarts += 1
-    mic, problems = M(), []
-    ears = Ears(mic, lambda b: RelVad(b), lambda: False, poll_s=0.002, on_mic_problem=problems.append)
-    task = asyncio.create_task(ears.run())
-    await asyncio.sleep(0.2)
-    task.cancel(); await asyncio.gather(task, return_exceptions=True)
-    assert mic.restarts == 0 and problems == []
+    assert problems == ["silent"]
 
 
 async def test_a_talk_over_that_turns_out_to_be_nothing_is_dropped_and_counted():

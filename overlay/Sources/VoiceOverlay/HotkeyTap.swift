@@ -6,30 +6,22 @@ let keyCodes: [String: Int64] = ["f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5"
 
 /// Global hotkeys captured inside the app (which holds the Accessibility / Input Monitoring grants) and
 /// forwarded to the daemon. Mode keys are swallowed so macOS never beeps or triggers media functions.
-///
-/// The tap sits in front of EVERY keystroke on the Mac, so it lives on its own thread: if it ran on the widget's main thread, any moment that
-/// thread was busy (drawing, waiting on the window server) would hold up the keyboard of the whole desktop.
 final class HotkeyTap {
-    var send: (String) -> Void = { _ in }              // called on the main thread
-    var onTrust: (Bool) -> Void = { _ in }              // called on the main thread
+    var send: (String) -> Void = { _ in }
+    var isRecording: () -> Bool = { false }
+    var onTrust: (Bool) -> Void = { _ in }
 
-    private let lock = NSLock()
     private var modeKeys: [Int64: String] = [:]      // keycode -> key name (e.g. 101 -> "f9")
     private var cancelCode: Int64 = 53
     private var cancelName = "esc"
-    private var recording = false                       // Esc is ours only while a recording or conversation is active (set from the main thread)
     private var tap: CFMachPort?
-    private var tapThread: Thread?
     private var retry: Timer?
 
     func configure(hotkeys: [String], cancel: String) {
-        lock.lock(); defer { lock.unlock() }
         modeKeys = Dictionary(uniqueKeysWithValues: hotkeys.compactMap { n in keyCodes[n].map { ($0, n) } })
         cancelCode = keyCodes[cancel] ?? 53
         cancelName = cancel
     }
-
-    func setRecording(_ on: Bool) { lock.lock(); recording = on; lock.unlock() }
 
     func start() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -70,22 +62,11 @@ final class HotkeyTap {
                                         eventsOfInterest: CGEventMask(mask), callback: callback,
                                         userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return false }
         tap = t
-        report("event tap installed (own thread)")
-        let source = CFMachPortCreateRunLoopSource(nil, t, 0)
-        let thread = Thread {
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-            CGEvent.tapEnable(tap: t, enable: true)
-            CFRunLoopRun()                                  // this thread does nothing but serve the keyboard hook
-        }
-        thread.name = "voicecontrol.hotkeys"
-        thread.qualityOfService = .userInteractive
-        thread.start()
-        tapThread = thread
+        report("event tap installed")
+        CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, t, 0), .commonModes)
+        CGEvent.tapEnable(tap: t, enable: true)
         return true
     }
-
-    /// Hand the key to the app on the main thread; the tap itself returns at once.
-    private func forward(_ json: String) { DispatchQueue.main.async { [weak self] in self?.send(json) } }
 
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -96,15 +77,12 @@ final class HotkeyTap {
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
         let down = type == .keyDown
 
-        lock.lock()
-        let name = modeKeys[code], cancelHit = code == cancelCode && recording, cancel = cancelName
-        lock.unlock()
-        if let name {
-            if !isRepeat { forward("{\"type\":\"key\",\"name\":\"\(name)\",\"down\":\(down)}") }
+        if let name = modeKeys[code] {
+            if !isRepeat { send("{\"type\":\"key\",\"name\":\"\(name)\",\"down\":\(down)}") }
             return nil
         }
-        if cancelHit {                                   // Esc is only ours while a recording is active
-            if down && !isRepeat { forward("{\"type\":\"key\",\"name\":\"\(cancel)\",\"down\":true}") }
+        if code == cancelCode && isRecording() {         // Esc is only ours while a recording is active
+            if down && !isRepeat { send("{\"type\":\"key\",\"name\":\"\(cancelName)\",\"down\":true}") }
             return nil
         }
         return Unmanaged.passUnretained(event)

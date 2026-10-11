@@ -42,7 +42,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Prometheus controls your Chrome (the sites you already use) when you ask it to browse for you.</string>
   <key>NSMicrophoneUsageDescription</key><string>Voice Control records your voice while you hold F9, F10 or F11.</string>
-  <key>NSLocalNetworkUsageDescription</key><string>Prometheus Swarm connects your computers to each other on your home network.</string>
 </dict></plist>
 PLIST
 # Sign with the stable local certificate when present: macOS ties Accessibility / Input Monitoring /
@@ -54,8 +53,5 @@ else
   echo "No '$ID' certificate: falling back to ad-hoc signing (permissions will reset on every rebuild)"
   codesign --force --deep --sign - "$APP" 2>&1 | tail -1
 fi
-
-# Prometheus Swarm is a mode of this app now (the Swarm / Single switch in the widget): remove the separate app an earlier build installed.
-rm -rf "$HOME/Applications/Prometheus Swarm.app"
 rm -rf "$T"
 echo "Installed: $APP"

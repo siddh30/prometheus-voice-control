@@ -61,11 +61,6 @@ final class OverlayModel: ObservableObject {
     @Published var session: String? = nil     // agent session chip
     @Published var listenStart: Date? = nil
     @Published var speaking = false
-    @Published var calm: Bool = UIMotion.calm { didSet { UIMotion.calm = calm; UserDefaults.standard.set(calm, forKey: "calm") } }   // no animation at all
-    @Published var manualText = ""            // F9 in Swarm mode: what you said, waiting for you to choose where it goes
-    @Published var cardWidth: CGFloat = 440     // how wide the open card is: follows the screen (set by the app)
-    @Published var swarmMode = false          // Swarm: what you say goes to the agents on all your computers; Single: just this one
-    let swarm = SwarmModel()                  // the hub's view of your computers, shown while Swarm mode is on
     @Published var checklist: [ChecklistItem] = []
     @Published var typing = false             // the "type to Prometheus" box is open
     @Published var voiceOn = true             // speak replies aloud, or show them as text only (e.g. on speakers)
@@ -98,18 +93,14 @@ final class OverlayModel: ObservableObject {
         }
     }
 
-    var isActive: Bool { typing || !manualText.isEmpty || (swarmMode && swarm.isWorking) || phase == .music || needsPermission || speaking || jobActive || !checklist.isEmpty || phase != .idle || !transcript.isEmpty || !notice.isEmpty || !steps.isEmpty || !result.isEmpty }
-    /// Is there anything for the black plan box (a checklist, steps, a plan, or a question waiting for your yes/no)? The answer is not part of it.
-    var hasPlan: Bool { !plan.isEmpty || !steps.isEmpty || !checklist.isEmpty || approval != nil }
+    var isActive: Bool { typing || phase == .music || needsPermission || speaking || jobActive || !checklist.isEmpty || phase != .idle || !transcript.isEmpty || !notice.isEmpty || !steps.isEmpty || !result.isEmpty }
     var expanded: Bool {
         let panelContent = !plan.isEmpty || !steps.isEmpty || !result.isEmpty || approval != nil
         return (mode == "agent" || conversational) && (panelContent || !checklist.isEmpty)
     }
 
     /// Chip text: what the assistant decided to do with your request, else the mode.
-    /// Swarm applies to F10 (the assistant) only: F9 always dictates, whatever mode you are in, and must look like it.
-    var swarmActive: Bool { swarmMode && mode != "dictate" }
-    var tag: String { mode == "dictate" ? (swarmMode ? "MANUAL" : "DICTATE") : swarmActive ? "SWARM" : (route.map { $0 == "chat" ? "CHAT" : $0.uppercased() } ?? mode ?? "").uppercased() }
+    var tag: String { (route.map { $0 == "chat" ? "CHAT" : $0.uppercased() } ?? mode ?? "").uppercased() }
 
     var palette: Palette {
         if let f = flash { return f }
@@ -120,13 +111,12 @@ final class OverlayModel: ObservableObject {
             switch mode {
             case "agent": return .agent
             case "action": return .action
-            case "prometheus": return swarmMode ? .agent : .convo          // violet = swarm, teal = this computer
-            case "assistant", "conversation": return .convo
-            default: return .listening                                      // dictation: red
+            case "assistant", "conversation", "prometheus": return .convo
+            default: return .listening
             }
         case .transcribing: return .transcribing
         case .handling, .thinking, .acting, .awaiting_approval:
-            if mode == "prometheus" { return swarmMode || phase == .acting || !checklist.isEmpty ? .agent : .convo }   // violet while doing, teal while talking
+            if mode == "prometheus" { return phase == .acting || !checklist.isEmpty ? .agent : .convo }   // violet while doing, teal while talking
             switch route ?? mode {
             case "action": return .action
             case "chat", "assistant", "conversation": return .convo
@@ -189,13 +179,6 @@ final class OverlayModel: ObservableObject {
             jobText = (data["text"] as? String) ?? jobText
         case "voice":
             voiceOn = (data["on"] as? Bool) ?? true
-        case "swarm_mode":
-            swarmMode = (data["on"] as? Bool) ?? false
-        case "swarm_manual":
-            manualText = (data["text"] as? String) ?? ""
-        case "swarm_target":
-            let names = Set((data["computers"] as? [String]) ?? [])
-            if names != swarm.targets { swarm.targets = names }
         case "music":
             musicTitle = (data["on"] as? Bool) == true ? ((data["title"] as? String) ?? "") : ""
         case "duplex":
@@ -253,29 +236,6 @@ final class OverlayModel: ObservableObject {
             phase = s
             if s == .idle { level = 0; scheduleClear() }
         }
-    }
-
-    /// Wire the swarm's computer picker to the daemon (which sends the next request to exactly those computers).
-    func linkSwarm() {
-        swarm.onTargets = { [weak self] names in
-            guard let data = try? JSONSerialization.data(withJSONObject: ["type": "swarm_target", "computers": names]),
-                  let json = String(data: data, encoding: .utf8) else { return }
-            self?.send?(json)
-        }
-    }
-
-    /// F9 in Swarm mode: send what you said to the computer you chose ("__auto__" = let the swarm decide, "__here__" = type it at the cursor).
-    func dispatchManual(_ computer: String) {
-        let text = manualText
-        manualText = ""
-        guard computer != "__cancel__", let data = try? JSONSerialization.data(withJSONObject: ["type": "swarm_dispatch", "text": text, "computer": computer]),
-              let json = String(data: data, encoding: .utf8) else { return }
-        send?(json)
-    }
-
-    func toggleSwarmMode() {
-        swarmMode.toggle()                                  // optimistic; the daemon confirms with a "swarm_mode" event
-        send?("{\"type\":\"swarm_mode\",\"on\":\(swarmMode)}")
     }
 
     func toggleVoice() {

@@ -4,7 +4,6 @@ import asyncio
 import difflib
 import logging
 import re
-import time
 from collections.abc import Callable
 
 import numpy as np
@@ -65,7 +64,6 @@ class WakeListener:
         self.enabled = bool(config.get("wake_word.enabled", True))
         self._threshold: float | None = None
         self._pos = 0                                              # absolute sample index consumed so far
-        self._ready_at = 0.0                                       # listening starts here: the first moments after another mode ends are skipped
         self._carry: list[np.ndarray] = []
         self._task: asyncio.Task | None = None
 
@@ -93,7 +91,6 @@ class WakeListener:
                 if not recording:
                     self.mic.start()
                     self._pos, self._carry = 0, []
-                    self._ready_at = time.monotonic() + float(self.config.get("wake_word.grace_s", 1.2))
                     recording = True
                     self.bus.publish("wake", listening=True)
                 audio = await self._next_utterance()
@@ -131,8 +128,6 @@ class WakeListener:
             if not (self.enabled and self.is_idle()):
                 return None
             new, self._pos = self.mic.blocks_from(self._pos)
-            if time.monotonic() < self._ready_at:                   # just after a dictation or conversation: the tail of that speech is not for us
-                continue
             for b in new:
                 blocks_all.append(b)
                 verdict = ep.feed(b)

@@ -34,7 +34,6 @@ SAFE_TOOLS = [
     "mcp__prometheus__checklist_set", "mcp__prometheus__checklist_update", "mcp__prometheus__computer_action",
     "mcp__memory__remember", "mcp__memory__forget", "mcp__memory__list_facts",
     "mcp__memory__learn", "mcp__memory__list_learnings", "mcp__memory__forget_learning",
-    "mcp__swarm__swarm_computers", "mcp__swarm__swarm_run", "mcp__swarm__swarm_wait", "mcp__swarm__swarm_status", "mcp__swarm__swarm_approve", "mcp__swarm__swarm_cancel",
 ]
 RISKY_WORDS = re.compile(r"\b(apply|submit|send|buy|purchase|pay|order|delete|publish|checkout|check out|transfer|place bet|donate|withdraw)\b", re.I)
 # Built-in tools that only read, search or keep notes: never worth interrupting you for.
@@ -153,10 +152,6 @@ def describe_tool(name: str, inp: dict[str, Any]) -> str:
         case "browser_forward": return "Going forward"
         case "browser_screenshot": return "Looking at the page"
         case "browser_media": return f"Video: {inp.get('action', '')}"
-        case "swarm_computers": return "Checking your other computers"
-        case "swarm_run": return f"Sending to {inp.get('computer') or 'the swarm'}: {str(inp.get('task', ''))[:50]}"
-        case "swarm_wait": return "Waiting for the next computer to finish"
-        case "swarm_status" | "swarm_approve" | "swarm_cancel": return "Checking the swarm"
         case "browser_tabs": return "Checking open tabs"
         case "browser_switch_tab": return f"Switching to the {inp.get('query', '')} tab"
         case "browser_new_tab": return f"Opening a new tab: {pretty_url(str(inp.get('url', '')))}"
@@ -203,8 +198,7 @@ def needs_approval(name: str, inp: dict[str, Any]) -> str | None:
 class AgentRunner:
     def __init__(self, config: Config, bus: EventBus, memory: Memory, browser: BrowserBackend | None = None,
                  screen: Screen | None = None, prompt_name: str = "agent_prompt.txt",
-                 learnings: LearningStore | None = None, swarm_tools: bool = True) -> None:
-        self.swarm_tools = swarm_tools      # False for an agent that is itself running a swarm task: it must not hand work back to the swarm
+                 learnings: LearningStore | None = None) -> None:
         self.config, self.bus, self.memory = config, bus, memory
         self.learnings = learnings or LearningStore.beside(memory)       # what it has learned about HOW to do things: its own store
         self.screen = screen
@@ -388,19 +382,6 @@ class AgentRunner:
                    f"to it (\"what were we doing\", \"continue\"); do not recite it unprompted.\n{recap}\n</EarlierConversation>") if recap else ""
         return f"{base}\n\nLocal context folders: {paths}\n\n<Facts>\n{facts}\n</Facts>{earlier}"
 
-    def _swarm_server(self) -> dict:
-        """The tools for sending work to your other computers: only when the swarm is switched on, and never for an agent that is itself a
-        swarm task (that would let work bounce between computers). Any problem here just means no swarm tools."""
-        if not self.swarm_tools or not self.config.get("swarm.enabled", False):
-            return {}
-        try:
-            from voicectl.swarm.tools import api_base, build_swarm_server
-            from voicectl.swarm.wiring import swarm_token
-            return {"swarm": build_swarm_server(api_base(self.config), swarm_token(), self.bus)}
-        except Exception:
-            log.warning("swarm tools unavailable", exc_info=True)
-            return {}
-
     def _options(self, resume: str | None) -> ClaudeAgentOptions:
         dirs = [str(Path(p).expanduser()) for p in self.config.get("agent.context_paths", [])]
         return ClaudeAgentOptions(
@@ -409,7 +390,7 @@ class AgentRunner:
             cwd=str(ROOT), add_dirs=dirs, setting_sources=["project"], skills="all",
             mcp_servers={"browser": build_browser_server(self.browser), "memory": self._memory_server(),
                          "prometheus": self._prometheus_server(),
-                         **({"screen": build_screen_server(self.screen)} if self.screen else {}), **self._swarm_server()},
+                         **({"screen": build_screen_server(self.screen)} if self.screen else {})},
             allowed_tools=SAFE_TOOLS, can_use_tool=self._can_use_tool,
             permission_mode="default", resume=resume,
             include_partial_messages=True,                       # stream words so they can be spoken as they are written

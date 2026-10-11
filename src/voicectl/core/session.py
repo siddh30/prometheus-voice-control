@@ -11,7 +11,6 @@ import numpy as np
 
 from voicectl.core.config import Config
 from voicectl.core.events import EventBus
-from voicectl.core.speechgate import has_speech
 from voicectl.modes.base import Mode
 from voicectl.stt.base import STTBackend
 from voicectl.telemetry import phoenix as tel
@@ -173,10 +172,6 @@ class SessionManager:
             return
         if peak < 0.005:
             self.bus.publish("notice", text=f"Audio is silent (peak {peak:.4f}): check mic permission/input device")
-        if not has_speech(audio, self.mic.sample_rate):               # nobody spoke: never ask a model (it would make words up) or type anything
-            self.bus.publish("notice", text="Didn't hear anything")
-            self._set(State.IDLE)
-            return
         mode = self.modes[self.active_mode]
         try:
             with tel.tracer.start_as_current_span("voicectl.session") as span:

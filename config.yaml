@@ -96,16 +96,6 @@ wake_word:
   word: prometheus          # say "Prometheus" (or "Prometheus, open Safari") to start the assistant hands-free
   model: base.en            # small local model used only to spot the word; audio never leaves your Mac
 
-swarm:                        # Prometheus Swarm: your computers working as one (see DESIGN.md)
-  enabled: false              # turn on for every computer that should join
-  name: ""                    # this computer's name in the swarm (default: its hostname)
-  description: ""             # what it is good for, to help the planner: "Mac mini: always on, has my resume and downloads"
-  hub: false                  # run the hub (dashboard + planner) on THIS computer: choose one, usually the always-on one
-  hub_url: "ws://localhost:8780"   # where the hub is; on the other computers use ws://<hub-computer>.local:8780
-  port: 8780                  # the hub's dashboard and node link; its HTTP API is on the next port (8781)
-  default_node: ""            # who gets a request that doesn't name a machine, when it is a tie
-  # The shared secret is SWARM_TOKEN in .env (the same on every computer). If unset, the hub creates one: see the data folder.
-
 memory:
   cleanup_every_min: 60       # Prometheus tidies its memory every hour, but only when it is idle
   session_max_age_min: 60     # a session older than this is summarised into a short note and closed

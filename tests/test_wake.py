@@ -62,7 +62,7 @@ async def test_wake_fires_with_rest_of_utterance():
     script = [tone(0.002)] * 12 + [tone(0.25)] * 25 + [tone(0.002)] * 40
     woke = []
     stt = FakeSTT("Hey Prometheus, open Safari")
-    w = WakeListener(Config({"wake_word": {"enabled": True, "word": "prometheus", "grace_s": 0}}), EventBus(), FakeMic(script), stt,
+    w = WakeListener(Config({"wake_word": {"enabled": True, "word": "prometheus"}}), EventBus(), FakeMic(script), stt,
                      lambda: True, lambda rest, heard: woke.append((rest, heard)))
     w.start()
     for _ in range(100):
@@ -78,7 +78,7 @@ async def test_no_wake_for_other_speech_and_releases_mic_when_busy():
     script = [tone(0.002)] * 12 + [tone(0.25)] * 25 + [tone(0.002)] * 40
     woke, busy = [], {"v": False}
     mic = FakeMic(script)
-    w = WakeListener(Config({"wake_word": {"enabled": True, "grace_s": 0}}), EventBus(), mic, FakeSTT("what time is it"),
+    w = WakeListener(Config({"wake_word": {"enabled": True}}), EventBus(), mic, FakeSTT("what time is it"),
                      lambda: not busy["v"], lambda rest, heard: woke.append(rest))
     w.start()
     await asyncio.sleep(0.6)
@@ -112,7 +112,7 @@ async def test_the_wake_mic_stays_open_while_waiting_so_there_is_no_deaf_gap():
     FakeMic.starts = 0
     script = [tone(0.002)] * 200 + [tone(0.25)] * 25 + [tone(0.002)] * 40            # 6+ s of quiet, then "Prometheus"
     woke = []
-    w = WakeListener(Config({"wake_word": {"enabled": True, "word": "prometheus", "grace_s": 0}}), EventBus(), FakeMic(script), FakeSTT("Prometheus"),
+    w = WakeListener(Config({"wake_word": {"enabled": True, "word": "prometheus"}}), EventBus(), FakeMic(script), FakeSTT("Prometheus"),
                      lambda: True, lambda rest, heard: woke.append(heard))
     w.start()
     for _ in range(160):
