@@ -192,6 +192,19 @@ Pin the app to your Dock if you like. Tip: wearing headphones gives the best exp
 | "What have you learned?" | Lists them. |
 | "Text only" / "speak to me" | Switches between spoken and silent replies (handy on speakers). |
 
+## Prometheus Swarm: your computers working as one
+
+Run Prometheus on more than one of your own Macs and give them one dashboard. Tell it what you want; it decides which computer does what (or splits the work), shows which devices are working with a live animation, and brings the results back. Your phone is just a browser pointed at the dashboard, so there is nothing to install on it.
+
+1. **Pick one computer to be the hub** (the always-on one is ideal). In its `config.yaml`: `swarm: {enabled: true, hub: true, description: "Mac mini: always on, has my files"}`.
+2. **On every other computer:** `swarm: {enabled: true, hub_url: "ws://<hub-computer-name>.local:8780", description: "MacBook: my laptop"}`.
+3. **Share one secret.** Put the same `SWARM_TOKEN=<any long random string>` in `.env` on every computer (if you don't, the hub makes one and saves it as `swarm_token` in its data folder).
+4. **Open the dashboard:** Dock menu > *Open Prometheus Swarm* on the hub computer, or open the address in `swarm_url.txt` (in the data folder) on your phone, and *Add to Home Screen*.
+
+Say or type things like "on the mini, download the report", "run the backup on both", or just "find me three ML roles": with no machine named, the planner picks by who is idle and what each computer is good for. The phone can only *control* the swarm (it can't be automated like a Mac).
+
+> This first version is built for a home network: it needs the shared secret but nothing more. Don't expose the port to the internet. See [DESIGN.md](DESIGN.md#prometheus-swarm).
+
 ## Configuration
 
 Everything is in `config.yaml` (hotkeys, models, voice, speed, pause length, memory limits, browser backend). Common tweaks:

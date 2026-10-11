@@ -154,6 +154,14 @@ async def run() -> None:
                     session.wake(primary, typed)                          # not in a conversation yet: start one with your message
     text_task = asyncio.create_task(ui_text())
 
+    if config.get("swarm.enabled", False):
+        try:
+            from voicectl.swarm.wiring import start_swarm
+            from voicectl.agents.shared import runner_for
+            swarm_tasks = start_swarm(config, ctx, lambda: ctx.shared.get("agent_runner") or runner_for(ctx, "prometheus_prompt.txt"), bus)
+        except Exception:
+            log.exception("Prometheus Swarm could not start; carrying on without it")
+
     async def ui_wake_toggle() -> None:
         async for ev in bus.subscribe():
             if ev.type == "ui_command" and ev.data.get("command") == "wake" and wake:

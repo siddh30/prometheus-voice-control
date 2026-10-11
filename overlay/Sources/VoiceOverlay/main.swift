@@ -148,6 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(withTitle: "Restart voice daemon", action: #selector(restartDaemon), keyEquivalent: "").target = self
         m.addItem(withTitle: wakePaused ? "Resume wake word" : "Pause wake word", action: #selector(toggleWake), keyEquivalent: "").target = self
         m.addItem(withTitle: model.voiceOn ? "Voice replies: on (click for text only)" : "Text only (click to hear replies)", action: #selector(toggleVoiceMenu), keyEquivalent: "").target = self
+        if FileManager.default.fileExists(atPath: (supervisor?.dataDir.appendingPathComponent("swarm_url.txt").path) ?? "") {
+            m.addItem(withTitle: "Open Prometheus Swarm", action: #selector(openSwarmMenu), keyEquivalent: "").target = self
+        }
         m.addItem(withTitle: "New conversation (clean context)", action: #selector(newChatMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Start fresh (forget everything)", action: #selector(startFreshMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Clean memory now", action: #selector(cleanMemory), keyEquivalent: "").target = self
@@ -161,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         socket.send("{\"type\":\"wake\",\"enabled\":\(!wakePaused)}")
     }
     @objc func toggleVoiceMenu() { model.toggleVoice() }
+    @objc func openSwarmMenu() { supervisor?.openSwarm() }
     @objc func newChatMenu() { model.newConversation() }
     @objc func startFreshMenu() { model.startFresh() }
     @objc func cleanMemory() { socket.send("{\"type\":\"maintenance\"}") }

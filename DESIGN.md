@@ -263,6 +263,41 @@ Every optimisation has a slower, safer path behind it, and a switch to turn it o
 
 Standing rule for changes to this project: check the architecture each time and keep it from becoming brittle. Before shipping, ask what happens if a dependency is missing, whether there is a safe fallback and an off switch, and whether the failure path has a test.
 
+## Prometheus Swarm
+
+Several of your own computers as one assistant. A **hub** knows who is online, splits a request, hands each part to a **node**, and shows everything on a **dashboard** that works in any browser, including a phone.
+
+```mermaid
+flowchart LR
+    subgraph Dash["Dashboard (any browser; a phone is just one)"]
+        D[Devices animation, checklists,<br/>results, approvals, stop]
+    end
+    subgraph Hub["Hub (one computer)"]
+        REG[Registry<br/>who is online]
+        PL[Planner<br/>rules, then a small model]
+        Q[Per-node queues<br/>and job state]
+    end
+    subgraph N1["MacBook node"]
+        A1[Its own agent session<br/>shares this Mac's Chrome and screen]
+    end
+    subgraph N2["Mac mini node"]
+        A2[Its own agent session<br/>shares this Mac's Chrome and screen]
+    end
+    D <-- WebSocket /ui --> Hub
+    A1 -- dials in: WebSocket /node --> Hub
+    A2 -- dials in: WebSocket /node --> Hub
+```
+
+- **Nodes dial the hub** (not the other way), so a laptop works wherever it is, a sleeping Mac simply shows as offline, and a restarted hub is rejoined automatically with backoff.
+- **A swarm task runs in its own agent session** (private memory and event bus), so it never mixes with your local conversation. It shares that Mac's browser connection and screen control, so one swarm task runs on a node at a time and further ones queue.
+- **Planning:** you named a machine ("on the mini") or asked for all of them, or only one is online: no model needed. Otherwise a small model chooses (one computer unless the request has clearly independent parts); if it is unavailable or answers badly the least-busy idle computer is used. Invented computer names are discarded.
+- **Results** from several nodes are woven into a short answer by a small model, with a plain join as the fallback.
+- **Approvals** for risky steps (money, sending, deleting) are relayed to the dashboard, so you can answer from the phone.
+- **Protocol** (JSON over WebSocket): node to hub `hello`, `heartbeat`, `step`, `checklist`, `approval`, `done`; hub to node `task`, `cancel`, `approve`; dashboard to hub `submit`, `cancel`, `approve`; hub to dashboard `snapshot`, `node`, `job`, `sub`.
+- **Security in this version:** one shared token on every connection, a home network, no internet exposure. Per-device keys and per-node permissions are the planned next step; until then treat it as trusting everything on your network that has the token.
+- **Failure behaviour:** a node that disappears fails its task with a clear message (and shows greyed out); a task that runs over 20 minutes is cut off; a node error never takes the node down; telemetry is never in the path.
+- **Known limits:** a swarm task and local use of the same Mac share one browser tab, so avoid driving it locally while it works; the hub is a single point of failure (nodes keep retrying, and any computer can be made the hub by changing config); the phone is a controller only, since iOS cannot be automated like a Mac.
+
 ## Observability
 
 OpenTelemetry spans around each mode and turn go to a local Phoenix instance (`uv tool run ... phoenix serve`). Per-turn latency (speech end → text → first audio) and cost are logged and shown.

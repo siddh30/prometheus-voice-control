@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1115">
+<title>Prometheus Swarm</title>
+<style>
+  :root { --bg:#0f1115; --card:rgba(20,22,26,.94); --line:rgba(255,255,255,.10); --text:rgba(255,255,255,.92); --dim:rgba(255,255,255,.5);
+          --accent:#8b5cf6; --ok:#34d399; --bad:#f87171; --warn:#fbbf24; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--text); font-family:ui-rounded,-apple-system,BlinkMacSystemFont,"SF Pro Rounded","Segoe UI",sans-serif; }
+  body { min-height:100vh; display:flex; justify-content:center; padding:max(16px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom)); }
+  .card { width:100%; max-width:600px; background:var(--card); border:1.2px solid color-mix(in srgb,var(--accent) 55%,transparent); border-radius:28px;
+          padding:18px 18px 16px; box-shadow:none; align-self:flex-start; }
+  canvas#ribbons { width:100%; height:64px; display:block; }
+  .pill { display:flex; align-items:center; justify-content:center; gap:10px; margin:6px auto 4px; width:max-content; max-width:100%;
+          background:rgba(255,255,255,.07); border:.5px solid var(--line); border-radius:999px; padding:6px 14px; }
+  .tag { font-size:9px; font-weight:800; letter-spacing:.16em; padding:3px 8px; border-radius:999px; color:var(--accent); background:color-mix(in srgb,var(--accent) 25%,transparent); }
+  .state { font-size:10px; font-weight:700; letter-spacing:.24em; color:var(--text); text-transform:uppercase; }
+  .state.idle { color:var(--dim); }
+  .spin { width:12px; height:12px; border-radius:50%; border:2px solid color-mix(in srgb,var(--accent) 30%,transparent); border-top-color:var(--accent); animation:spin 1s linear infinite; display:none; }
+  .busy .spin { display:block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  svg#swarm { width:100%; height:auto; display:block; margin-top:4px; }
+  .orb-ring { fill:none; stroke-width:2; }
+  .node text { font-size:11px; fill:var(--text); text-anchor:middle; font-weight:600; }
+  .node .sub { font-size:9px; fill:var(--dim); letter-spacing:.08em; text-transform:uppercase; font-weight:700; }
+  .link { stroke:rgba(255,255,255,.14); stroke-width:1.5; }
+  .link.active { stroke:var(--accent); stroke-width:2; stroke-dasharray:6 8; animation:flow 0.9s linear infinite; }
+  .link.done { stroke:var(--ok); }
+  @keyframes flow { to { stroke-dashoffset:-28; } }
+  @keyframes pulse { 0% { r:30; opacity:.55; } 100% { r:52; opacity:0; } }
+  .pulse { fill:none; stroke:var(--accent); stroke-width:2; animation:pulse 1.6s ease-out infinite; }
+  .row { display:flex; gap:8px; margin:12px 0 4px; }
+  input#ask { flex:1; min-width:0; background:rgba(255,255,255,.08); border:0; border-radius:14px; padding:13px 14px; color:var(--text); font:inherit; font-size:15px; outline:none; }
+  input#ask::placeholder { color:var(--dim); }
+  button { font:inherit; border:0; cursor:pointer; color:var(--text); background:rgba(255,255,255,.10); border-radius:14px; padding:0 14px; min-width:46px; min-height:46px; font-size:14px; }
+  button.go { background:var(--accent); font-weight:700; }
+  button.stop { background:color-mix(in srgb,var(--bad) 30%,transparent); color:var(--bad); font-weight:700; }
+  button.mic.on { background:var(--bad); }
+  .hint { text-align:center; font-size:10px; color:var(--dim); margin:6px 0 0; letter-spacing:.04em; }
+  .panel { background:rgba(0,0,0,.28); border-radius:16px; padding:12px 14px; margin-top:12px; }
+  .panel h4 { margin:0 0 8px; font-size:9px; letter-spacing:.16em; color:var(--dim); text-transform:uppercase; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .req { font-size:14px; line-height:1.35; margin:0 0 8px; }
+  .sub-card { border-top:1px solid var(--line); padding:9px 0 2px; }
+  .sub-card:first-of-type { border-top:0; padding-top:0; }
+  .who { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--dim); flex:none; }
+  .dot.running { background:var(--accent); animation:blink 1s ease-in-out infinite; }
+  .dot.done { background:var(--ok); } .dot.failed,.dot.cancelled { background:var(--bad); }
+  @keyframes blink { 50% { opacity:.35; } }
+  .why { font-weight:400; color:var(--dim); font-size:11px; }
+  .step { font-size:11.5px; color:var(--dim); margin:3px 0 0 16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .step.now { color:var(--accent); }
+  .check { font-size:12px; margin:4px 0 0 16px; } .check div { margin:2px 0; }
+  .res { font-size:13px; line-height:1.4; margin:6px 0 0 16px; white-space:pre-wrap; color:var(--text); }
+  .ask { background:color-mix(in srgb,var(--warn) 18%,transparent); border-radius:12px; padding:10px; margin:8px 0 0 16px; font-size:12.5px; }
+  .ask .btns { display:flex; gap:8px; margin-top:8px; } .ask button { min-height:38px; }
+  .final { font-size:14px; line-height:1.45; white-space:pre-wrap; margin-top:8px; padding-top:10px; border-top:1px solid var(--line); }
+  .conn { text-align:center; font-size:11px; color:var(--warn); margin-top:8px; display:none; }
+  .offline .conn { display:block; }
+</style>
+</head>
+<body>
+<div class="card" id="root">
+  <canvas id="ribbons"></canvas>
+  <div class="pill"><span class="tag">SWARM</span><span class="spin"></span><span class="state idle" id="state">IDLE</span></div>
+  <svg id="swarm" viewBox="0 0 560 200" preserveAspectRatio="xMidYMid meet"></svg>
+  <div class="row">
+    <input id="ask" placeholder="Tell the swarm what to do…" autocomplete="off" enterkeyhint="send">
+    <button class="mic" id="mic" title="Speak" style="display:none">🎙</button>
+    <button class="go" id="go">Go</button>
+  </div>
+  <div class="hint" id="hint">Your computers work on it together. Add “on the mini” to choose one.</div>
+  <div id="jobs"></div>
+  <div class="conn" id="conn">Reconnecting to the hub…</div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+if (params.get("token")) { localStorage.setItem("swarm_token", params.get("token")); history.replaceState(null, "", location.pathname); }
+const token = localStorage.getItem("swarm_token") || "";
+const me = /iPhone|iPad|iPod/.test(navigator.userAgent) ? "iPhone" : /Android/.test(navigator.userAgent) ? "Phone" : /Mac/.test(navigator.platform) ? "This Mac" : "This device";
+let nodes = {}, jobs = [], ws, retry = 1000;
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ui?token=${encodeURIComponent(token)}`);
+  ws.onopen = () => { retry = 1000; $("root").classList.remove("offline"); };
+  ws.onclose = () => { $("root").classList.add("offline"); setTimeout(connect, retry); retry = Math.min(retry * 1.7, 10000); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === "snapshot") { nodes = {}; m.nodes.forEach(n => nodes[n.name] = n); jobs = m.jobs; }
+    else if (m.type === "node") { nodes[m.node.name] = { ...(nodes[m.node.name] || {}), ...m.node }; }
+    else if (m.type === "job") { upsertJob(m.job); }
+    else if (m.type === "sub") { const j = jobs.find(j => j.id === m.sub.job); if (j) { const i = j.subs.findIndex(s => s.id === m.sub.id); i >= 0 ? j.subs[i] = m.sub : j.subs.push(m.sub); } }
+    render();
+  };
+}
+function upsertJob(job) { const i = jobs.findIndex(j => j.id === job.id); i >= 0 ? jobs[i] = job : jobs.push(job); }
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+function submit() { const t = $("ask").value.trim(); if (!t) return; send({ type: "submit", text: t }); $("ask").value = ""; }
+$("go").onclick = submit;
+$("ask").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) {
+  const rec = new SR(); rec.lang = "en-US"; rec.interimResults = true; $("mic").style.display = "";
+  rec.onresult = (e) => { $("ask").value = [...e.results].map(r => r[0].transcript).join(" "); if (e.results[e.results.length - 1].isFinal) { $("mic").classList.remove("on"); submit(); } };
+  rec.onend = () => $("mic").classList.remove("on");
+  $("mic").onclick = () => { if ($("mic").classList.contains("on")) rec.stop(); else { $("mic").classList.add("on"); rec.start(); } };
+}
+
+// ---- the constellation: you in the middle, your computers around you; links light up while a computer works ----
+function render() {
+  const names = Object.keys(nodes).sort();
+  const running = new Set(jobs.flatMap(j => j.subs.filter(s => s.state === "running").map(s => s.node)));
+  const finished = new Set(jobs.slice(-1).flatMap(j => j.subs.filter(s => s.state === "done").map(s => s.node)));
+  const busy = running.size;
+  $("root").classList.toggle("busy", busy > 0);
+  const st = $("state"); st.textContent = busy ? `WORKING · ${busy} DEVICE${busy > 1 ? "S" : ""}` : "IDLE"; st.className = "state" + (busy ? "" : " idle");
+  const cx = 280, cy = 78, R = names.length <= 2 ? 150 : 135;
+  let svg = "";
+  const pos = names.map((n, i) => { const a = (-Math.PI / 2) + (2 * Math.PI * (i + 0.5)) / Math.max(names.length, 1) + (names.length === 1 ? Math.PI / 2 : 0);
+    return { n, x: cx + (names.length === 1 ? 0 : R * Math.cos(a) * 1.35), y: cy + (names.length === 1 ? -26 : 52 * Math.sin(a)) }; });
+  pos.forEach(p => { const nd = nodes[p.n]; const cls = running.has(p.n) ? "active" : finished.has(p.n) && !busy ? "done" : "";
+    svg += `<line class="link ${cls}" x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" ${nd.online ? "" : 'style="opacity:.25;stroke-dasharray:3 6"'}/>`; });
+  svg += `<g class="node"><circle cx="${cx}" cy="${cy}" r="26" fill="#14161a"/><circle cx="${cx}" cy="${cy}" r="26" fill="rgba(139,92,246,.18)" stroke="#8b5cf6" stroke-width="2"/>` +
+         `<text x="${cx}" y="${cy + 3}" style="font-size:10px">YOU</text><text class="sub" x="${cx}" y="${cy + 46}">${esc(me)}</text></g>`;
+  pos.forEach(p => { const nd = nodes[p.n]; const on = running.has(p.n); const online = nd.online;
+    const color = !online ? "rgba(255,255,255,.25)" : on ? "#8b5cf6" : "#34d399";
+    svg += `<g class="node" opacity="${online ? 1 : .55}">` + (on ? `<circle class="pulse" cx="${p.x}" cy="${p.y}" r="30"/>` : "") +
+           `<circle cx="${p.x}" cy="${p.y}" r="30" fill="#14161a"/><circle cx="${p.x}" cy="${p.y}" r="30" fill="rgba(255,255,255,.06)" stroke="${color}" stroke-width="2.4" ${online ? "" : 'stroke-dasharray="4 5"'}/>` +
+           icon(p.x, p.y, p.n, color) +
+           `<text x="${p.x}" y="${p.y + 50}">${esc(p.n)}</text><text class="sub" x="${p.x}" y="${p.y + 63}">${online ? (on ? "working" : "ready") : "offline"}</text></g>`; });
+  if (!names.length) svg += `<text x="${cx}" y="${cy + 70}" style="fill:rgba(255,255,255,.5);font-size:12px;text-anchor:middle">No computers have joined yet</text>`;
+  $("swarm").innerHTML = svg;
+  renderJobs(); activity = busy;
+}
+function icon(x, y, name, c) {
+  const desk = /mini|studio|imac|desktop/i.test(name);
+  return desk ? `<rect x="${x - 12}" y="${y - 11}" width="24" height="16" rx="3" fill="none" stroke="${c}" stroke-width="2"/><line x1="${x - 6}" y1="${y + 11}" x2="${x + 6}" y2="${y + 11}" stroke="${c}" stroke-width="2"/>`
+              : `<rect x="${x - 12}" y="${y - 10}" width="24" height="15" rx="2.5" fill="none" stroke="${c}" stroke-width="2"/><line x1="${x - 16}" y1="${y + 10}" x2="${x + 16}" y2="${y + 10}" stroke="${c}" stroke-width="2.4" stroke-linecap="round"/>`;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function renderJobs() {
+  const list = [...jobs].reverse().slice(0, 3);
+  $("jobs").innerHTML = list.map(j => {
+    const running = j.state === "running";
+    const subs = j.subs.map(s => {
+      const last = s.steps.filter(x => !x.done).slice(-1)[0];
+      return `<div class="sub-card"><div class="who"><span class="dot ${s.state}"></span>${esc(s.node)} <span class="why">${esc(s.why || "")}</span></div>` +
+        (s.state === "running" && last ? `<div class="step now">→ ${esc(last.text)}</div>` : "") +
+        (s.state === "queued" ? `<div class="step">waiting its turn</div>` : "") +
+        (s.checklist.length ? `<div class="check">${s.checklist.map(c => `<div>${c.status === "done" ? "✅" : c.status === "in_progress" ? "⏳" : "○"} ${esc(c.text)}</div>`).join("")}</div>` : "") +
+        (s.approval ? `<div class="ask">${esc(s.approval)}<div class="btns"><button class="go" onclick="approve('${s.id}',true)">Approve</button><button onclick="approve('${s.id}',false)">Deny</button></div></div>` : "") +
+        (s.result && s.state !== "running" ? `<div class="res">${esc(s.result)}</div>` : "") + `</div>`;
+    }).join("");
+    return `<div class="panel"><h4><span>${running ? "In progress" : j.state}</span>${running ? `<button class="stop" onclick="cancelJob('${j.id}')">Stop</button>` : ""}</h4>` +
+      `<p class="req">“${esc(j.request)}”</p>${subs}` + (j.result && j.subs.length > 1 ? `<div class="final">${esc(j.result)}</div>` : "") +
+      (j.result && j.subs.length === 0 ? `<div class="res">${esc(j.result)}</div>` : "") + `</div>`;
+  }).join("");
+}
+function approve(sub, ok) { send({ type: "approve", sub, ok }); }
+function cancelJob(job) { send({ type: "cancel", job }); }
+
+// ---- ribbons: calm when idle, lively while the swarm works ----
+const cv = $("ribbons"), g = cv.getContext("2d"); let activity = 0, t0 = 0;
+function fit() { const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1; cv.width = r.width * d; cv.height = r.height * d; g.setTransform(d, 0, 0, d, 0, 0); }
+addEventListener("resize", fit); fit();
+function draw(t) {
+  const w = cv.clientWidth, h = cv.clientHeight; g.clearRect(0, 0, w, h);
+  const amp = activity ? 14 + 6 * Math.min(activity, 3) : 2.5, mid = h / 2;
+  [["rgba(139,92,246,.9)", 1.0, 0], ["rgba(96,165,250,.7)", 1.6, 1.3], ["rgba(244,114,182,.6)", 0.7, 2.4]].forEach(([c, f, ph]) => {
+    g.beginPath(); for (let x = 0; x <= w; x += 4) { const k = Math.sin((x / w) * Math.PI), y = mid + Math.sin(x / 38 * f + t / 400 * (activity ? 1.6 : .5) + ph) * amp * k; x ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.strokeStyle = c; g.lineWidth = activity ? 2.2 : 1.4; g.shadowColor = c; g.shadowBlur = activity ? 14 : 4; g.stroke(); });
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+connect(); render();
+</script>
+</body>
+</html>
