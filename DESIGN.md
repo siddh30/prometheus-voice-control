@@ -21,11 +21,73 @@ A small floating widget shows the state (listening, thinking, working, speaking)
 
 ## Architecture
 
+The app is a **widget** (Swift) and a **daemon** (Python) that talk only through two typed contracts. Inside the daemon,
+everything that touches the outside world sits behind a small interface, and the two ways a request arrives (voice and
+typing) are separate channels that feed one core. The rule: **the core never asks where a request came from, which
+provider answered, or which OS did the work.**
+
+### The layers
+
+```mermaid
+flowchart TB
+    subgraph FRONT["Front end (Swift app)"]
+        W["Widget<br/>VoiceInputView / TypingInputView"]
+        HK["HotkeyTap"]
+        SC["ScreenControl"]
+        CMD["Command (Protocol.swift)"]
+        ING["Ingest<br/>buffered, 30 Hz"]
+    end
+
+    subgraph API["api/ : the contract"]
+        PROTO["protocol.py<br/>COMMANDS"]
+        EVT["events.py<br/>EVENTS"]
+        CTRL["Control<br/>one dispatcher"]
+        REQ["RequestBroker<br/>ask the app, await the answer"]
+    end
+
+    subgraph CORE["Core (modes, agents, memory)"]
+        VOICE["channels.VoiceChannel"]
+        TEXT["channels.TextChannel"]
+        MODES["modes: Conversation, Prometheus, Dictate"]
+        AGENT["agents.runner"]
+        MEM["core.Memory, LearningStore"]
+    end
+
+    subgraph SERV["Services behind interfaces"]
+        LLM["llm.LLM<br/>text, tool_calls, stream"]
+        STT["stt backends<br/>whisper-1, faster-whisper"]
+        TTS["tts.Engine<br/>Edge, System"]
+        PLAT["platform.Platform<br/>osascript, clipboard, playback, folders"]
+    end
+
+    W --> CMD --> PROTO
+    HK --> CMD
+    SC --> CMD
+    PROTO --> CTRL --> MODES
+    CTRL --> AGENT
+    VOICE --> MODES
+    TEXT --> MODES
+    MODES <--> AGENT
+    MODES --> MEM
+    AGENT --> MEM
+    MODES --> LLM
+    AGENT --> LLM
+    VOICE --> STT
+    MODES --> TTS
+    TTS --> PLAT
+    AGENT --> PLAT
+    AGENT --> REQ
+    MODES --> EVT --> ING --> W
+    REQ --> EVT
+```
+
+### The main app
+
 ```mermaid
 flowchart LR
     subgraph App["Swift app (menu-bar / Dock, SwiftUI)"]
         HK[Global hotkeys<br/>CGEventTap]
-        UI[Floating widget<br/>states, plan, captions, typing box]
+        UI[Floating widget<br/>states, checklist, captions, type box]
         SC[Screen control<br/>screenshot, mouse, keys]
         PASTE[Paste at cursor]
         SUP[Daemon supervisor]
@@ -33,11 +95,13 @@ flowchart LR
 
     subgraph Daemon["Python daemon"]
         BUS[(Event bus)]
-        WS[WebSocket bridge]
+        WS[WebSocket bridge<br/>+ heartbeat]
+        CTRL[api.Control]
         SM[Session manager<br/>state machine]
-        EARS[Ears<br/>mic stream + VAD + barge-in]
-        STT[Speech-to-text<br/>OpenAI Whisper or local faster-whisper]
-        TTS[Speaker<br/>Edge neural TTS, word-timed captions]
+        VOICE[VoiceChannel<br/>ears, VAD, echo, mic health]
+        TEXT[TextChannel<br/>typing, typing mode]
+        STT[Speech-to-text]
+        TTS[Speaker<br/>Engine, cache, captions]
         WAKE[Wake-word listener<br/>local model only]
         subgraph Modes
             DICT[Dictate]
@@ -50,7 +114,7 @@ flowchart LR
             MT[memory tools]
             AT[quick actions]
         end
-        MEM[(SQLite memory)]
+        MEM[(SQLite memory<br/>one shared instance)]
         MAINT[Maintenance<br/>hourly tidy, compaction]
         JEV[Jev classifiers<br/>complexity, risk, instant commands]
     end
@@ -59,12 +123,14 @@ flowchart LR
     PH[(Phoenix<br/>local traces)]
 
     HK --> WS
-    WS <--> BUS
     UI <--> WS
     SC <--> WS
+    WS <--> BUS
+    BUS --> CTRL
     SUP --> Daemon
     SM --> Modes
-    EARS --> STT --> PROM
+    VOICE --> STT --> PROM
+    TEXT --> PROM
     WAKE --> SM
     PROM --> JEV
     PROM --> RUN
@@ -78,7 +144,241 @@ flowchart LR
     SM --> PH
 ```
 
-The Swift app owns everything that needs a macOS permission (hotkeys, Accessibility, Screen Recording, pasting). The Python daemon owns audio, models and the agent. They talk over a local WebSocket carrying JSON events; the UI is a pure listener plus a few commands.
+The Swift app owns everything that needs a macOS permission (hotkeys, Accessibility, Screen Recording, pasting). The
+Python daemon owns audio, models and the agent. They talk over a local WebSocket carrying JSON: **commands** one way,
+**events** the other.
+
+## The APIs
+
+### Front end to daemon: commands
+
+One table, `voicectl/api/protocol.py`. Every message is validated before anything runs; an unknown or malformed one is
+logged and dropped. `api.Control` is the single dispatcher: handlers are registered per command, a slow command never holds
+up a different one, the same command keeps its order, and a failing handler is logged without stopping the others. The
+widget builds commands only through `Command` in `Protocol.swift`, and a test fails if the two lists ever differ.
+(`?` marks an optional field.)
+
+| Command | Fields | What it does |
+|---|---|---|
+| `text` | `text` | A typed message. Interrupts what it is saying or doing and becomes the newest instruction. |
+| `input_mode` | `mode` | `typed` when the type box opens (voice is ignored completely), `voice` when it closes. |
+| `voice` | `on` | Speak replies aloud, or show them as text only. |
+| `wake` | `enabled` | Turn the wake word on or off. |
+| `newchat` | none | Clean conversation; facts and lessons are kept. |
+| `fresh` | none | Forget everything. |
+| `maintenance` | none | Tidy memory now. |
+| `key` | `name`, `down` | A hotkey seen by the app (F9 / F10 / Esc). The app owns the macOS permissions. |
+| `approval` | `approved` | The answer to an approval question (Approve / Deny buttons). |
+| `input_result` | `id` | The app's answer to an `input_request`: a screenshot, or a click / key press done. |
+
+### Daemon to front end: events
+
+One table, `voicectl/api/events.py`. Every event any test publishes is checked against it, and so is every event the
+widget handles. (`?` marks an optional field, which may also be empty.)
+
+| Event | Fields | What it means |
+|---|---|---|
+| `config` | `hotkeys`, `cancel` | Sent once on connect: hotkeys and the cancel key. |
+| `heartbeat` | none | Every 3 s. If it stops, the widget says NOT RESPONDING and keeps animating. |
+| `state` | `state`, `mode`? | Where the conversation is: idle, listening, transcribing, thinking, acting... |
+| `level` | `value` | Microphone loudness 0..1 (the widget keeps only the latest value). |
+| `transcript` | `text`, `mode`? | What you said or typed. |
+| `notice` | `text` | A short heads-up under the pill. |
+| `error` | `message` | Something failed, in plain words. |
+| `plan` | `steps` | The steps of a bigger task (before it starts). |
+| `step` | `text`, `done`?, `failed`? | One thing the agent is doing or has done (done / failed). |
+| `checklist` | `items`, `summary`?, `level`? | The progress report: items with pending / in_progress / done / skipped. |
+| `result` | `text` | The reply text. Hidden when it only restates the checklist. |
+| `speech_text` | `text` | The words of a reply as they are spoken (live captions). |
+| `approval` | `text` | The agent is asking permission (money, sending, deleting). |
+| `job` | `active`, `text`? | A task is running in the background while you keep talking. |
+| `voice` | `on` | Whether replies are spoken (also sent to a new widget on connect). |
+| `speaking` | `on` | The assistant is talking. |
+| `music` | `on`, `title`? | Media is playing: listen for the name only. |
+| `duplex` | `mode` | How talking over it works: full (headphones), echo, half. |
+| `route` | `kind`, `how`?, `confidence`?, `action`? | How the request was classified: chat, action or agent. |
+| `wake` | `listening` | The wake-word listener is on or off. |
+| `session` | `label` | The agent session label (turn count, minutes); empty after a new conversation. |
+| `attend` | `on` | Music mode: for a few seconds the next thing you say is for the assistant, no name needed. |
+| `cost` | `usd`, `turns` | Cost in dollars and the number of agent turns of the last run. |
+| `input_request` | `id`, `op` | The agent asks the app to look at or act on the screen. |
+| `paste` | `text` | Dictation text for the app to paste at the cursor. |
+
+### Python interfaces
+
+Each is a small `Protocol`. Call sites say *what* they want; only the implementation knows *how*. Swap one object (or use a
+fake in a test) and nothing else changes. A guard test per row fails if code reaches around the interface.
+
+| Interface | Where | Operations | Implementations | Guard |
+|---|---|---|---|---|
+| `Control` | `api/control.py` | `on(name, handler)`, `start()`, `stop()` | the daemon's one dispatcher | tests for validation, isolation, ordering |
+| `RequestBroker` | `api/requests.py` | `request(event, timeout, **args)`, `resolve(command)` | request/response over events (screen, mouse, keys) | timeout and id-matching tests |
+| `VoiceChannel` | `channels/voice.py` | `open`, `pause`, `decide_duplex`, `is_echo`, `step_down`, `on_mic_problem` | mic, speech detection, echo, mic health | stands-alone tests |
+| `TextChannel` | `channels/text.py` | `exclusive`, `note_typed`, `recently_used` | typing and the exclusive typing mode | |
+| `LLM` | `llm/__init__.py` | `text`, `tool_calls`, `stream` | `AnthropicLLM` | the SDK is imported only in `llm/` |
+| `Engine` (TTS) | `tts/engines.py` | `synth(text, path)`, `ext`, `cacheable` | `EdgeEngine`, `SystemEngine` | the Edge library is imported only there |
+| STT backend | `stt/base.py` | `transcribe(audio, sr, hint)`, `warm_up` | `openai_api` (whisper-1), `faster_whisper` | registered by name |
+| `Platform` | `platform/__init__.py` | `run`, `osascript`, `osascript_async`, `clipboard_read/write`, `audio_devices_json`, `process_rss_kb`, `find_folders`, `open_application`, `to_wav16k`, `start_playback`, `say_to_file` | `MacOS` | no other module may call `subprocess` |
+| `Memory`, `LearningStore` | `core/memory.py`, `core/learnings.py` | facts, turns, sessions, `newest_turn_id`, `clear_turns`, learnings | SQLite, one shared `Memory` | only these two files touch the database |
+| Registries | `modes/`, `actions/`, `stt/` | `@modes.register`, `@actions.register`, `backends.get` | each mode, action and backend | |
+
+### Swift side
+
+| Piece | File | Job |
+|---|---|---|
+| `Command` / `CommandName` | `Protocol.swift` | The only place the widget builds a message for the daemon |
+| `Ingest` | `Socket.swift` | Takes every daemon message off the main thread, collapses the mic level to its latest value, and hands a batch to the UI 30 times a second. Also measures silence for the stall report |
+| `OverlayModel` | `Model.swift` | The widget's state; `usesMic` says whether anything microphone-related may show |
+| `VoiceInputView`, `TypingInputView` | `InputViews.swift` | The two input kinds. The typing view has no waveform, timer, voice toggle or hints |
+| `ScreenControl` | `ScreenControl.swift` | Screenshots, mouse and keys, always on a background queue |
+| `HotkeyTap` | `HotkeyTap.swift` | F9 / F10 / Esc, sent as `key` commands |
+
+## Pathways
+
+Every diagram below is one pathway through the code.
+
+### Voice input
+
+```mermaid
+flowchart LR
+    MIC["Microphone<br/>(always-open stream)"] --> EARS["Ears<br/>cuts audio into utterances"]
+    EARS --> VAD["VadEndpointer<br/>when did you stop?"]
+    VAD --> STT["STT backend<br/>whisper-1 / local faster-whisper"]
+    STT --> ECHO{"is_echo?<br/>our own voice?"}
+    ECHO -- yes --> DROP["ignored,<br/>duplex steps down after 2"]
+    ECHO -- no --> TURN["text to the core"]
+    DUP["decide_duplex<br/>headphones: full<br/>speakers: echo / half"] -.-> EARS
+    HEALTH["mic health<br/>silent / changed / gone"] -.-> NOTICE["notice event<br/>(not while typing)"]
+    EARS -. "speech started" .-> CUT["cut off the current reply"]
+```
+
+Owns it: `channels/voice.py`, `core/ears.py`, `core/vad.py`, `core/echo.py`, `stt/`.
+
+### Typing
+
+```mermaid
+flowchart LR
+    BOX["Type box<br/>(widget)"] -- "input_mode: typed" --> CTRL["api.Control"]
+    CTRL --> EXCL["TextChannel.exclusive = true"]
+    EXCL --> PAUSE["VoiceChannel.pause(true)<br/>mic never opened, voice ignored,<br/>no idle timeout"]
+    BOX -- "text" --> CTRL
+    CTRL --> SUBMIT["submit_text<br/>cut off, becomes newest instruction"]
+    SUBMIT --> CORE["core turn"]
+    BOX -- "closed: input_mode voice" --> CTRL
+    CTRL --> RESUME["VoiceChannel.pause(false)<br/>voice is back"]
+```
+
+While the box is open the widget shows the typing view: no waveform, no listening timer, no voice toggle, no hints, and
+the pill reads WORKING or READY. A silent microphone is never reported while you type.
+
+### Commands (widget to daemon)
+
+```mermaid
+flowchart LR
+    W["Widget<br/>Command.json"] --> WS["WebSocket<br/>ui_bridge.UIBridge"]
+    WS --> PUB["bus: ui_command"]
+    PUB --> PARSE{"parse_command<br/>known name, right fields?"}
+    PARSE -- no --> LOG["logged and ignored"]
+    PARSE -- yes --> DISPATCH["Control.dispatch<br/>one lock per command name"]
+    DISPATCH --> H1["handler"]
+    DISPATCH --> H2["handler"]
+    H1 -. "an exception is logged,<br/>never stops the others" .-> DISPATCH
+```
+
+### Events (daemon to widget) and the stall report
+
+```mermaid
+flowchart LR
+    PUBLISHERS["modes, agents, speaker, wake, maintenance<br/>bus.publish(type, ...)"] --> BUS(("EventBus<br/>slow subscriber drops oldest"))
+    BUS --> BRIDGE["UIBridge<br/>JSON over WebSocket"]
+    HB["heartbeat every 3 s"] --> BRIDGE
+    BRIDGE --> INGEST["widget Ingest<br/>off the main thread<br/>mic level collapsed to latest"]
+    INGEST -- "30 Hz tick" --> MODEL["OverlayModel.handle<br/>one batch of updates"]
+    MODEL --> VIEW["SwiftUI view"]
+    ANIM["animations<br/>own clock (TimelineView)"] --> VIEW
+    INGEST -. "silent for 8 s" .-> STALL["pill: NOT RESPONDING"]
+```
+
+The widget's animation never waits on the daemon: the daemon only changes what is shown. A flood of messages becomes at
+most 30 small updates a second; silence changes nothing except the stall label.
+
+### Screen and mouse
+
+```mermaid
+sequenceDiagram
+    participant A as Agent (daemon)
+    participant R as RequestBroker
+    participant S as Widget socket
+    participant Q as Screen queue (background)
+    A->>R: request input_request {op}
+    R->>S: event with a fresh id
+    S->>Q: run off the UI thread
+    Q->>Q: screencapture / mouse / keys
+    Q->>S: command input_result {id, ...}
+    S->>R: Control resolves the waiting call
+    R->>A: the answer, or RequestTimeout
+```
+
+### Dictation (F9)
+
+```mermaid
+flowchart LR
+    K["F9 held or toggled<br/>(key command)"] --> SM["Session manager"]
+    SM --> REC["Mic records"]
+    REC --> STT["STT backend"]
+    STT --> CLEAN["clean transcript<br/>(drop non-speech)"]
+    CLEAN --> PASTE["paste event"]
+    PASTE --> APP["widget Paster<br/>types at the cursor,<br/>clipboard restored"]
+```
+
+### Wake word
+
+```mermaid
+flowchart LR
+    WMIC["Wake mic<br/>(own stream, released when another mode runs)"] --> WSTT["Local faster-whisper base.en<br/>audio never leaves the Mac"]
+    WSTT --> FIND{"find_wake<br/>name near the start,<br/>matched by spelling and sound"}
+    FIND -- no --> WMIC
+    FIND -- yes --> SESS["Session.wake(rest of the sentence)"]
+    SESS --> CONV["conversation starts<br/>with a varied greeting"]
+```
+
+### Approvals
+
+```mermaid
+flowchart LR
+    REQ["request"] --> RISK{"risk score + pattern gate<br/>pay, send, submit, delete"}
+    RISK -- ordinary --> RUN["runs without asking"]
+    RISK -- risky --> ASK["approval event<br/>(also spoken)"]
+    ASK --> W["Approve / Deny buttons<br/>approval command"]
+    ASK --> V["spoken yes / no<br/>parse_yes_no"]
+    W --> RESP["runner.respond_approval"]
+    V --> RESP
+    RESP --> GO["runs, or is declined"]
+```
+
+### Music mode
+
+```mermaid
+flowchart LR
+    SONG["media plays"] --> MODE["music mode<br/>conversation stays open"]
+    MODE --> HEAR["utterance heard"]
+    HEAR --> NAME{"starts with the name,<br/>or inside the attend window?"}
+    NAME -- no --> IGN["ignored (lyrics, the video's audio)"]
+    NAME -- yes --> TURN["a normal turn"]
+    KEY["F10 during music"] --> ATT["attend event:<br/>next sentence needs no name"]
+    ATT --> HEAR
+```
+
+### Releases and profiles
+
+```mermaid
+flowchart LR
+    SRC["working folder<br/>profile: dev<br/>own data, port 8766, no hotkeys or voice"] -- "scripts/release.sh" --> SNAP["immutable snapshot<br/>own virtualenv, profile: stable"]
+    SNAP --> CHECK["boots as stable?<br/>right data folder, port, keys?"]
+    CHECK --> APPB["rebuild Voice Control.app<br/>pointed at the snapshot"]
+    APPB --> CUR["current link"]
+    CUR -. "roll back: re-point the link" .-> OLD["older snapshot"]
+```
 
 ## A Prometheus turn
 
@@ -275,7 +575,12 @@ OpenTelemetry spans around each mode and turn go to a local Phoenix instance (`u
 | A quick action | New file in `actions/` with `@actions.register(...)` |
 | A skill | New folder in `.claude/skills/<name>/SKILL.md` |
 | A browser backend | Implement the backend protocol and register it |
-| An STT or TTS engine | Implement the base class, register by name, select in `config.yaml` |
+| An STT engine | Implement the base class, register by name, select in `config.yaml` |
+| A TTS voice service | Implement `Engine` in `tts/engines.py` and return it from `engine_for` |
+| Another model provider | Implement `LLM` (`text`, `tool_calls`, `stream`) and `llm.set_llm(...)` |
+| Another operating system | Implement `Platform` and `platform.set_platform(...)` |
+| A front-end command or event | Add it to `api/protocol.py` / `api/events.py` (and `Protocol.swift`); tests fail until both sides agree |
+| A new input kind | Add a channel in `channels/` that hands text to the core; add its view next to `VoiceInputView` |
 | Agent tools | Add an in-process MCP tool and list it in the allowed tools |
 
 ## Known limits and next steps
