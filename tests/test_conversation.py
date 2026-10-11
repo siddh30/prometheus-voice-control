@@ -35,7 +35,7 @@ def make(respond, no_speech_s=30):
     m = ConversationMode(ModeContext(cfg, bus))
     m.respond = respond
     ears = FakeEars()
-    m.ears_factory = lambda mic, transcribe=None: ears
+    m.voice.make_ears = lambda mic, transcribe=None: ears
     return m, ears, bus
 
 
@@ -201,7 +201,7 @@ async def test_the_farewell_is_not_cut_off_by_the_ears():
     m.ctx.speaker = Spk()
     async def respond(t): return "ok"
     m.respond = respond
-    ears = FakeEars(); m.ears_factory = lambda mic, transcribe=None: ears
+    ears = FakeEars(); m.voice.make_ears = lambda mic, transcribe=None: ears
     run = await start(m)
     await settle(0.3)                              # the "I'm listening." ack finished
     spoken.clear()

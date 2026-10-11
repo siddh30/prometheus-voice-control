@@ -54,7 +54,7 @@ def make():
     browser = FakeBrowser()
     ctx.shared["agent_runner"] = FakeRunner(browser)
     m = PrometheusMode(ctx)
-    m._ears = FakeEars()
+    m.voice.ears = FakeEars()
     events = []
     bus.publish = lambda t, **d: events.append((t, d))
     return m, browser, events, ctx
@@ -63,7 +63,7 @@ def make():
 async def test_an_audio_request_that_ends_with_a_song_playing_enters_quiet_name_only_listening():
     m, browser, events, ctx = make()
     assert await m._agent_turn("play bohemian rhapsody on youtube") == "Playing it now."
-    assert m.music and m.holding() and not m._ears.paused                  # the music is NOT stopped and the ears stay ON
+    assert m.music and m.holding() and not m.voice.ears.paused                  # the music is NOT stopped and the ears stay ON
     assert "pause" not in browser.calls
     assert ("music", {"on": True, "title": "Queen – Bohemian Rhapsody - YouTube"}) in events
     assert ("state", {"state": "music", "mode": "prometheus"}) in events

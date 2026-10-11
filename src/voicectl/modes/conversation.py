@@ -9,12 +9,10 @@ import time
 from collections.abc import AsyncIterator
 
 from voicectl.core.config import DATA_DIR
-from voicectl.core.audio_output import wearing_headphones
-from voicectl.core.echo import TalkOverDetector
-from voicectl.core.ears import Ears, Utterance
+from voicectl.channels import TextChannel, VoiceChannel
+from voicectl.core.ears import Utterance
 from voicectl.core.memory import Memory
 from voicectl.core.timeline import TurnTimeline
-from voicectl.core.vad import VadEndpointer
 from voicectl.telemetry import phoenix as tel
 from voicectl.modes.base import Mode, ModeContext, modes
 
@@ -197,17 +195,12 @@ class ConversationMode(Mode):
         self._end = asyncio.Event()
         self._client = None
         self._last_state: str | None = None
-        self._ears: Ears | None = None
-        self._duplex = "half"                          # full (headphones) | echo (speakers, echo-aware) | half (speakers, deaf while it speaks)
-        self._detector: TalkOverDetector | None = None
-        self.typed_only = False                        # typing mode: the microphone is ignored completely until you close it
-        self._last_typed = 0.0                         # when you last typed to it: a silent microphone doesn't matter while you type
-        self._self_heard = 0                           # times the mic caught our own voice this conversation
-        self._false_barges = 0                         # times we cut ourselves off for nothing
+        self.voice = VoiceChannel(ctx.config, ctx.bus, ctx.speaker, on_speech_start=self._on_speech_start,
+                                  quiet=lambda: self.text.recently_used())     # hearing you
+        self.text = TextChannel()                                                # typing to it
         self._user_talking = False                     # you are mid-sentence: don't talk over you with announcements
         self._t_end = self._t_text = 0.0               # latency marks (monotonic)
         self._tl: TurnTimeline | None = None
-        self.ears_factory = self._default_ears        # tests substitute a scripted listener
 
     def _state(self, state: str) -> None:
         """Publish a state change, skipping repeats (a flapping state makes the widget blink)."""
@@ -222,113 +215,6 @@ class ConversationMode(Mode):
         """Handle one utterance and speak the answer. Subclasses override this to route elsewhere."""
         return await self._reply_and_speak(sentences(self._tokens()))
 
-    # --- ears ---
-    def _default_ears(self, mic, transcribe=None) -> Ears:
-        cfg = self.ctx.config
-        sr = mic.sample_rate
-
-        def vad_factory(base: int) -> VadEndpointer:
-            return VadEndpointer(sr, silence_s=cfg.get("conversation.silence_s", 0.6), no_speech_s=1e9,
-                                 max_s=cfg.get("conversation.max_utterance_s", 45.0), base_sample=base)
-        speaker = self.ctx.speaker
-        return Ears(mic, vad_factory, (lambda: speaker.active) if speaker else (lambda: False),
-                    min_gate=cfg.get("conversation.barge_min_level", 0.04), on_speech_start=self._on_speech_start,
-                    transcribe=transcribe, tentative_s=cfg.get("conversation.tentative_s", 0.3), deaf=self._deaf,
-                    talk_over=self._detector, on_mic_problem=self._on_mic_problem, on_false_barge=self._on_false_barge)
-
-    def _deaf(self) -> bool:
-        """When the mic must be thrown away: on speakers, while we speak (half) or just after we stop (echo tail)."""
-        spk = self.ctx.speaker
-        if spk is None or self._duplex == "full":
-            return False
-        guard = spk.quiet_for() < self.ctx.config.get("conversation.echo_guard_s", 0.8)
-        if self._duplex == "half":
-            return spk.active or guard
-        return (not spk.active) and guard                # echo mode listens WHILE we speak; only the fading tail is ignored
-
-    async def _decide_duplex(self) -> None:
-        cfg = self.ctx.config
-        output = cfg.get("conversation.output", "auto")        # auto | headphones | speakers
-        if output == "auto":
-            output = "headphones" if await asyncio.to_thread(wearing_headphones) else "speakers"
-        if output == "headphones":
-            self._duplex = "full"                                # no echo: talk over it freely
-        elif cfg.get("conversation.barge_in", True) in (False, "false", "off"):
-            self._duplex = "half"                                # speakers, voice interruption off: F10 only
-        else:
-            self._duplex = "echo"                                # speakers: predict our own echo and hear you on top of it
-        reference = getattr(self.ctx.speaker, "reference", None)
-        if self._duplex == "echo" and reference is None:          # no way to know what we play: fall back to the safe style
-            self._duplex = "half"
-        self._detector = TalkOverDetector(reference) if self._duplex == "echo" else None
-        log.info("audio: %s", {"full": "headphones, talking over it is free", "echo": "speakers, echo-aware (it hears you over its own voice)",
-                               "half": "speakers, deaf while it speaks (F10 interrupts)"}[self._duplex])
-        self.ctx.bus.publish("duplex", mode=self._duplex)
-
-    @staticmethod
-    def _words(text: str) -> list[str]:
-        return re.findall(r"[a-z0-9']+", text.lower())
-
-    def _is_echo(self, text: str) -> bool:
-        """Did the mic just catch our own voice? Compare what we heard with what we recently said."""
-        spk = self.ctx.speaker
-        spoken = list(getattr(spk, "spoken", []) or [])
-        if not spoken:
-            return False
-        now, words = time.monotonic(), self._words(text)
-        if not words:
-            return True
-        recent = [(ts, t) for ts, t in spoken if now - ts < 90]
-        if len(words) <= 2:                                          # too short to judge: only if it is exactly our last words, just now
-            last_ts, last_text = recent[-1] if recent else (0.0, "")
-            return now - last_ts < 3 and all(w in self._words(last_text) for w in words)
-        pool = {w for _, t in recent for w in self._words(t)}
-        return sum(w in pool for w in words) / len(words) >= 0.8
-
-    # ---- self-diagnosis: the microphone is a shared, fragile thing; adapt on evidence instead of assuming ----
-    STEP_DOWN = {"full": "echo", "echo": "half"}
-
-    def _step_down(self, why: str) -> None:
-        """We keep hearing ourselves, so the assumed setup is wrong. Move to the next safer listening style and say so."""
-        new = self.STEP_DOWN.get(self._duplex)
-        if new == "echo" and getattr(self.ctx.speaker, "reference", None) is None:
-            new = "half"
-        if new is None:
-            return
-        old, self._duplex = self._duplex, new
-        reference = getattr(self.ctx.speaker, "reference", None)
-        self._detector = TalkOverDetector(reference) if new == "echo" and reference is not None else None
-        if self._ears:
-            self._ears.talk_over = self._detector
-        self._self_heard = self._false_barges = 0
-        label = {"echo": "listening while I speak, but ignoring my own voice", "half": "not listening while I speak (press F10 to interrupt)"}[new]
-        log.warning("audio: %s -> %s (%s)", old, new, why)
-        self.ctx.bus.publish("duplex", mode=new)
-        self.ctx.bus.publish("notice", text=f"I kept hearing myself, so I'm now {label}.")
-
-    def _note_self_heard(self) -> None:
-        self._self_heard += 1
-        if self._self_heard >= 2:
-            self._step_down("the mic caught our own voice twice")
-
-    def _on_false_barge(self) -> None:
-        self._false_barges += 1
-        if self._false_barges >= 2 and self._duplex == "echo":
-            self._step_down("two false interruptions")
-
-    def _typing_recently(self) -> bool:
-        """You are using the keyboard, not the microphone: nothing about the mic is worth telling you right now."""
-        return time.monotonic() - self._last_typed < 300
-
-    def _on_mic_problem(self, kind: str) -> None:
-        texts = {"restarted": "The microphone changed, so I reconnected to it.",
-                 "silent": "I'm getting no sound from the microphone. Check the input device and Microphone permission.",
-                 "unavailable": "I can't reach the microphone right now. Check that it's connected."}
-        log.warning("microphone: %s", kind)
-        if kind == "silent" and self._typing_recently():
-            return                                      # you are typing to it, so a quiet mic is not a problem worth a warning
-        self.ctx.bus.publish("notice" if kind != "unavailable" else "error", **({"text": texts[kind]} if kind != "unavailable" else {"message": texts[kind]}))
-
     def holding(self) -> bool:
         """True while the conversation should stay open without hearing anything (music playing)."""
         return False
@@ -337,19 +223,10 @@ class ConversationMode(Mode):
         """Chance to ignore or rewrite what was heard before it becomes a turn (None = ignore silently)."""
         return text
 
-    def mute_ears(self) -> None:
-        if self._ears:
-            self._ears.paused = True
-
-    def unmute_ears(self) -> None:
-        if self._ears:
-            self._ears.paused = False
-
     def set_typed_only(self, on: bool) -> None:
         """Typing mode is exclusive: while the type box is open nothing is heard; closing it brings your voice back."""
-        self.typed_only = on
-        if self._ears:
-            self._ears.paused = on
+        self.text.exclusive = on
+        self.voice.pause(on)
 
     def _on_speech_start(self) -> None:
         """You started talking: cut off whatever the assistant is doing, right now."""
@@ -398,7 +275,7 @@ class ConversationMode(Mode):
         text = (text or "").strip()
         if not text:
             return
-        self._last_typed = time.monotonic()
+        self.text.note_typed()
         self._cut_off()
         self.ctx.bus.publish("transcript", text=text, mode=self.name)
         if is_goodbye(text):
@@ -419,9 +296,8 @@ class ConversationMode(Mode):
         no_speech_s = cfg.get("conversation.no_speech_s", 15.0)
         async def transcribe(audio) -> str:                    # runs speculatively inside the ears, before you've fully stopped
             return await asyncio.to_thread(stt.transcribe, audio, mic.sample_rate)
-        await self._decide_duplex()
-        ears = self._ears = self.ears_factory(mic, transcribe)
-        ears.paused = self.typed_only                          # typing mode: don't even open the microphone
+        await self.voice.decide_duplex()
+        ears = self.voice.open(mic, transcribe, paused=self.text.exclusive)
         ears_task = asyncio.create_task(ears.run())
         idle_since, misses = time.monotonic(), 0
         try:
@@ -438,7 +314,7 @@ class ConversationMode(Mode):
                 except asyncio.TimeoutError:
                     if self._busy():
                         idle_since = time.monotonic()
-                    elif self.holding() or self.typed_only:
+                    elif self.holding() or self.text.exclusive:
                         idle_since = time.monotonic()          # music is playing, or you are typing: staying quiet is not 'nobody is here'
                     elif time.monotonic() - idle_since >= no_speech_s:
                         misses, idle_since = misses + 1, time.monotonic()
@@ -479,10 +355,10 @@ class ConversationMode(Mode):
                 if gated is None:
                     continue                          # not addressed to us (e.g. lyrics while music plays): ignore, silently
                 text = gated
-                if self._is_echo(text):
+                if self.voice.is_echo(text):
                     log.info("ignoring my own voice picked up by the mic: %r", text[:60])
-                    if self._words(text):                 # no English words = noise, not our voice: ignore it, don't blame the setup
-                        self._note_self_heard()
+                    if self.voice.words(text):                 # no English words = noise, not our voice: ignore it, don't blame the setup
+                        self.voice.note_self_heard()
                     if getattr(utt_obj, "engaged", False):
                         self._on_false_barge()
                     self._state("listening" if not self._busy() else "thinking")
