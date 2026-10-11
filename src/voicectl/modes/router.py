@@ -8,6 +8,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from voicectl import llm
 from voicectl.actions.base import Action, actions
 from voicectl.actions.router import match_pattern
 from voicectl.core.config import Config
@@ -49,13 +50,6 @@ def normalize(text: str) -> str:
     for _ in range(2):
         t = _TAIL.sub("", _LEAD.sub("", t)).strip()
     return t
-
-
-@functools.lru_cache(maxsize=1)
-def anthropic_client():
-    """One shared client: reusing the connection saves the TLS handshake (~0.5 s) on every call."""
-    from anthropic import Anthropic
-    return Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 
 @dataclass
@@ -112,22 +106,20 @@ class LLMDecider(Decider):
         return await asyncio.to_thread(self._sync, text, recent, job)
 
     def _sync(self, text: str, recent: list[dict], job: str | None = None) -> Route:
-        resp = anthropic_client().messages.create(
+        calls = llm.current().tool_calls(
             model=self.model, max_tokens=200, system=ROUTER_SYSTEM, tools=_llm_tools(), tool_choice={"type": "any"},
             messages=[{"role": "user", "content": f"Recent exchange:\n{_context(recent) or '(none)'}\n\n"
                                                   f"Task currently running: {job or 'none'}\n\nRequest: {text}"}],
         )
-        for b in resp.content:
-            if b.type != "tool_use":
-                continue
-            if b.name == "control":
+        for c in calls:
+            if c.name == "control":
                 return Route("control", how="llm") if job else Route("chat", how="llm")
-            if b.name == "agent_task":
+            if c.name == "agent_task":
                 return Route("agent", how="llm")
-            if b.name == "chat":
+            if c.name == "chat":
                 return Route("chat", how="llm")
-            if b.name in actions.all():
-                return Route("action", actions.get(b.name), {k: str(v) for k, v in b.input.items()}, how="llm")
+            if c.name in actions.all():
+                return Route("action", actions.get(c.name), {k: str(v) for k, v in c.args.items()}, how="llm")
         return Route("chat", how="llm")
 
 
@@ -202,12 +194,9 @@ class JevDecider(Decider):
 
     def _extract_args(self, cls: type[Action], text: str) -> dict[str, str]:
         """Jev picks the action; a forced tool call fills in its arguments (names, queries, levels)."""
-        resp = anthropic_client().messages.create(
-            model=self.arg_model, max_tokens=150, tools=[cls.spec()], tool_choice={"type": "tool", "name": cls.name},
-            messages=[{"role": "user", "content": text}])
-        for b in resp.content:
-            if b.type == "tool_use":
-                return {k: str(v) for k, v in b.input.items()}
+        for c in llm.current().tool_calls(model=self.arg_model, max_tokens=150, tools=[cls.spec()],
+                                          tool_choice={"type": "tool", "name": cls.name}, messages=[{"role": "user", "content": text}]):
+            return {k: str(v) for k, v in c.args.items()}
         return {}
 
 

@@ -12,6 +12,7 @@ from voicectl.actions.base import actions
 from voicectl.agents.complexity import Complexity, hint_block, heuristic
 from voicectl.agents.runner import Finished, TextDelta, TextEnd, TextStart
 from voicectl.agents.shared import runner_for
+from voicectl import llm
 from voicectl.core.wake import find_wake
 from voicectl.modes.base import ModeContext, modes
 from voicectl.modes.conversation import ConversationMode, sentences
@@ -440,26 +441,25 @@ class PrometheusMode(ConversationMode):
             system += (f"\n\nWhat you know about the user:\n{facts}" if facts else "") + (f"\n\nEarlier conversation:\n{recap}" if recap else "") \
                 + (f"\n\nJust done on the computer:\n{notes}" if notes else "") + (f"\n\n{runner.status()}" if runner.status() else "")
             messages = [{"role": m["role"], "content": m["content"]} for m in self.history[-8:] if m.get("content")]
-            async with self._anthropic().messages.stream(model=cfg.get("agent.fast_model", "claude-haiku-4-5"), max_tokens=300,
-                                                         system=system, messages=messages) as stream:
-                started = False
-                async for piece in stream.text_stream:
-                    reply += piece
-                    if not started:
-                        head += piece
-                        if "NEEDS_AGENT".startswith(head.strip().upper()[:11]) and len(head.strip()) < 11:
-                            continue                                     # could still turn out to be the hand-off word: wait for more
-                        if head.strip().upper().startswith("NEEDS_AGENT"):
-                            voice.cancel()
-                            return None
-                        started = True
-                        if tl:
-                            tl.kind = "chat"
-                            tl.mark("routed"); tl.mark("first_token")
-                        voice.start(1)
-                        voice.delta(1, strip_emoji(head))
-                    else:
-                        voice.delta(1, strip_emoji(piece))
+            started = False
+            async for piece in llm.current().stream(model=cfg.get("agent.fast_model", "claude-haiku-4-5"), max_tokens=300,
+                                                     system=system, messages=messages):
+                reply += piece
+                if not started:
+                    head += piece
+                    if "NEEDS_AGENT".startswith(head.strip().upper()[:11]) and len(head.strip()) < 11:
+                        continue                                     # could still turn out to be the hand-off word: wait for more
+                    if head.strip().upper().startswith("NEEDS_AGENT"):
+                        voice.cancel()
+                        return None
+                    started = True
+                    if tl:
+                        tl.kind = "chat"
+                        tl.mark("routed"); tl.mark("first_token")
+                    voice.start(1)
+                    voice.delta(1, strip_emoji(head))
+                else:
+                    voice.delta(1, strip_emoji(piece))
             if not started:                                              # very short reply that never left the buffer
                 if head.strip().upper().startswith("NEEDS_AGENT") or not head.strip():
                     voice.cancel()

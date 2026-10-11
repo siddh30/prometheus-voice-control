@@ -19,4 +19,6 @@ def every_published_event_honours_the_contract(monkeypatch):
 
     monkeypatch.setattr(EventBus, "publish", checked)
     yield
+    from voicectl import llm, platform
+    llm.set_llm(None); platform.set_platform(None)                  # a test's fakes never leak into the next one
     assert not bad, f"events that break the front-end contract: {sorted(set(bad))}"

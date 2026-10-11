@@ -312,18 +312,6 @@ async def test_the_recap_survives_restarts_that_open_empty_sessions(tmp_path):
     assert "compare Apple and Bloomberg roles" in r._system_prompt()
 
 
-class _FakeStream:
-    def __init__(self, pieces): self.pieces = pieces
-    async def __aenter__(self): return self
-    async def __aexit__(self, *a): return False
-    @property
-    def text_stream(self):
-        async def gen():
-            for p in self.pieces:
-                yield p
-        return gen()
-
-
 def _quick_chat_mode(tmp_path, pieces, spoken):
     from voicectl.core.config import Config
     from voicectl.core.events import EventBus
@@ -346,13 +334,13 @@ def _quick_chat_mode(tmp_path, pieces, spoken):
     ctx.shared["agent_runner"] = runner
     m._runner = lambda: runner
     class Client:
-        class messages:
-            @staticmethod
-            def stream(**kw):
-                Client.kw = kw
-                if isinstance(pieces, Exception): raise pieces
-                return _FakeStream(pieces)
-    m._anthropic = lambda: Client
+        @staticmethod
+        async def stream(**kw):
+            Client.kw = kw
+            if isinstance(pieces, Exception): raise pieces
+            for p in pieces: yield p
+    from voicectl import llm
+    llm.set_llm(Client)
     m.history = [{"role": "user", "content": "how are you"}]
     return m, runner, Client
 

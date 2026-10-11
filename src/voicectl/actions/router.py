@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from voicectl import llm
 from voicectl.actions.base import Action, ActionResult, actions
 
 SYSTEM = ("You map a spoken command to exactly one tool call for a macOS voice assistant. "
@@ -20,17 +21,12 @@ def match_pattern(text: str) -> tuple[type[Action], dict[str, str]] | None:
 
 def match_llm(text: str, model: str = "claude-sonnet-4-6") -> tuple[type[Action], dict[str, str]] | None:
     """Tier 2: Sonnet picks an action + args from the registry's schemas."""
-    from anthropic import Anthropic
-
-    resp = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY")).messages.create(
-        model=model, max_tokens=300, system=SYSTEM,
-        tools=[c.spec() for c in actions.all().values()],
-        tool_choice={"type": "auto"},
-        messages=[{"role": "user", "content": text}],
-    )
-    for block in resp.content:
-        if block.type == "tool_use" and block.name in actions.all():
-            return actions.get(block.name), {k: str(v) for k, v in block.input.items()}
+    calls = llm.current().tool_calls(model=model, max_tokens=300, system=SYSTEM,
+                                     tools=[c.spec() for c in actions.all().values()], tool_choice={"type": "auto"},
+                                     messages=[{"role": "user", "content": text}])
+    for c in calls:
+        if c.name in actions.all():
+            return actions.get(c.name), {k: str(v) for k, v in c.args.items()}
     return None
 
 

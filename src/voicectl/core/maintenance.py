@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import os
-from voicectl import platform
+from voicectl import llm, platform
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -56,13 +56,7 @@ def rss_mb() -> float:
 
 async def summarize(text: str) -> str:
     """One short call to a small model. Raises if unavailable (the caller falls back to a plain digest)."""
-    from voicectl.modes.router import anthropic_client
-
-    def go() -> str:
-        r = anthropic_client().messages.create(model="claude-haiku-4-5", max_tokens=300,
-                                               messages=[{"role": "user", "content": DIGEST_PROMPT.format(log=text)}])
-        return "".join(b.text for b in r.content if b.type == "text").strip()
-    return await asyncio.to_thread(go)
+    return await asyncio.to_thread(lambda: llm.current().text(model="claude-haiku-4-5", max_tokens=300, prompt=DIGEST_PROMPT.format(log=text)))
 
 
 EXTRACT_PROMPT = """You maintain the long-term memory of a voice assistant. Below is a log of recent exchanges: what the user asked, what the
@@ -78,12 +72,8 @@ LOG:
 
 async def extract_memory(text: str) -> dict:
     """One call to a small model: durable facts about the user and lessons learned. Raises if unavailable."""
-    from voicectl.modes.router import anthropic_client
-
     def go() -> dict:
-        r = anthropic_client().messages.create(model="claude-haiku-4-5", max_tokens=700,
-                                               messages=[{"role": "user", "content": EXTRACT_PROMPT.replace("{log}", text)}])
-        raw = "".join(b.text for b in r.content if b.type == "text")
+        raw = llm.current().text(model="claude-haiku-4-5", max_tokens=700, prompt=EXTRACT_PROMPT.replace("{log}", text))
         m = re.search(r"\{.*\}", raw, re.S)
         return json.loads(m.group(0)) if m else {}
     return await asyncio.to_thread(go)

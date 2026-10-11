@@ -9,6 +9,7 @@ import time
 from collections.abc import AsyncIterator
 
 from voicectl.core.config import DATA_DIR
+from voicectl import llm
 from voicectl.channels import TextChannel, VoiceChannel
 from voicectl.core.ears import Utterance
 from voicectl.core.memory import Memory
@@ -193,7 +194,6 @@ class ConversationMode(Mode):
         self._errors = 0
         self._ending = False
         self._end = asyncio.Event()
-        self._client = None
         self._last_state: str | None = None
         self.voice = VoiceChannel(ctx.config, ctx.bus, ctx.speaker, on_speech_start=self._on_speech_start,
                                   quiet=lambda: self.text.recently_used())     # hearing you
@@ -454,12 +454,6 @@ class ConversationMode(Mode):
             await self.ctx.speaker.speak(text)
 
     # --- the brain ---
-    def _anthropic(self):
-        if self._client is None:                                 # reuse one connection across turns
-            from anthropic import AsyncAnthropic
-            self._client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        return self._client
-
     def _status_block(self) -> str:
         status = self.agent_status()
         return f"\nAgent status (for progress questions): {status}\n" if status else ""
@@ -467,13 +461,12 @@ class ConversationMode(Mode):
     async def _tokens(self) -> AsyncIterator[str]:
         facts = Memory(DATA_DIR / "voicectl.db").facts()
         facts_txt = ("\nWhat you know about the user:\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items())) if facts else ""
-        async with self._anthropic().messages.stream(
+        async for t in llm.current().stream(
             model=self.ctx.config.get("conversation.model", "claude-sonnet-4-6"),
             max_tokens=self.ctx.config.get("conversation.max_tokens", 400),
             system=SYSTEM.format(facts=facts_txt, agent_status=self._status_block()), messages=self.history,
-        ) as stream:
-            async for t in stream.text_stream:
-                yield t
+        ):
+            yield t
 
     def _start_chat(self) -> SentenceBuffer:
         """Begin generating the chat reply now. As soon as its first clause exists, its audio is synthesized too, so a
