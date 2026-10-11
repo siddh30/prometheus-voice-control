@@ -56,6 +56,7 @@ final class OverlayModel: ObservableObject {
     @Published var steps: [Step] = []
     @Published var result: String = ""
     @Published var connected = false
+    @Published var typedTurn = false          // the current request was typed (see usesMic)
     @Published var flash: Palette? = nil      // brief "done" / error tint
     @Published var approval: String? = nil
     @Published var session: String? = nil     // agent session chip
@@ -98,6 +99,10 @@ final class OverlayModel: ObservableObject {
         let panelContent = !plan.isEmpty || !steps.isEmpty || !result.isEmpty || approval != nil
         return (mode == "agent" || conversational) && (panelContent || !checklist.isEmpty)
     }
+
+    /// Typing and talking are two separate input kinds. Anything about the microphone (waveform, level, "listening")
+    /// belongs only to the voice kind; a typed request, or the box being open, never shows it.
+    var usesMic: Bool { !typing && !typedTurn }
 
     /// The result line, unless it only restates the checklist or steps already on screen ("Opened linkedin.com" twice).
     /// The checklist is the progress report, not an answer: a result shows only when it adds something to it.
@@ -149,6 +154,7 @@ final class OverlayModel: ObservableObject {
         case "level":
             let v = (data["value"] as? Double) ?? 0
             level = level * 0.55 + v * 0.45
+            if v > 0.15 && typedTurn { typedTurn = false }      // you started talking: the waveform is useful again
         case "state":
             let s = Phase(rawValue: (data["state"] as? String) ?? "idle") ?? .idle
             let newMode = (data["mode"] as? String) ?? mode
@@ -262,6 +268,7 @@ final class OverlayModel: ObservableObject {
     func sendTyped(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         typing = false
+        if !t.isEmpty { typedTurn = true }
         guard !t.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ["type": "text", "text": t]),
               let json = String(data: data, encoding: .utf8) else { return }
         send?(json)
@@ -296,6 +303,7 @@ final class OverlayModel: ObservableObject {
             // Keep agent results visible longer; they are read, not glanced at.
             
             self.transcript = ""; self.notice = ""; self.plan = []; self.steps = []; self.result = ""; self.checklist = []
+            self.typedTurn = false
             self.phase = .idle
         }
     }

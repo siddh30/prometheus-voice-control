@@ -16,7 +16,7 @@ struct OverlayView: View {
                     .foregroundStyle(.white.opacity(0.5))
             }
 
-            if model.isActive {
+            if model.isActive && model.usesMic {                          // a typed request has no waveform
                 Ribbons(palette: model.palette, level: model.level, phase: model.phase)
                     .frame(height: 64)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))

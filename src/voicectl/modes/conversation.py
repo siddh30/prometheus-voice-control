@@ -315,12 +315,16 @@ class ConversationMode(Mode):
         if self._false_barges >= 2 and self._duplex == "echo":
             self._step_down("two false interruptions")
 
+    def _typing_recently(self) -> bool:
+        """You are using the keyboard, not the microphone: nothing about the mic is worth telling you right now."""
+        return time.monotonic() - self._last_typed < 300
+
     def _on_mic_problem(self, kind: str) -> None:
         texts = {"restarted": "The microphone changed, so I reconnected to it.",
                  "silent": "I'm getting no sound from the microphone. Check the input device and Microphone permission.",
                  "unavailable": "I can't reach the microphone right now. Check that it's connected."}
         log.warning("microphone: %s", kind)
-        if kind == "silent" and time.monotonic() - self._last_typed < 300:
+        if kind == "silent" and self._typing_recently():
             return                                      # you are typing to it, so a quiet mic is not a problem worth a warning
         self.ctx.bus.publish("notice" if kind != "unavailable" else "error", **({"text": texts[kind]} if kind != "unavailable" else {"message": texts[kind]}))
 
