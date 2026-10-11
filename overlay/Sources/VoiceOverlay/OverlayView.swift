@@ -16,50 +16,13 @@ struct OverlayView: View {
                     .foregroundStyle(.white.opacity(0.5))
             }
 
-            if model.isActive && model.usesMic {                          // a typed request has no waveform
-                Ribbons(palette: model.palette, level: model.level, phase: model.phase)
-                    .frame(height: 64)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-
-            HStack(spacing: 8) {
-                if let mode = model.mode, model.isActive {
-                    Text(model.tag)
-                        .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(Capsule().fill(model.palette.a.opacity(0.25)))
-                        .foregroundStyle(model.palette.a)
-                }
-                if !(model.phase == .idle && model.connected) {      // the resting pill is just the name
-                    StatusGlyph(phase: model.phase, color: model.connected ? model.palette.a : .orange, connected: model.connected, speaking: model.speaking, wake: model.wakeListening, job: model.jobActive)
-                }
-                Text(model.label)
-                    .lineLimit(1).fixedSize()
-                    .font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.4)
-                    .foregroundStyle(model.connected ? Color.white.opacity(model.phase == .idle ? 0.45 : 0.9) : Color.orange.opacity(0.9))
-                if model.phase == .listening, model.usesMic, let since = model.listenStart { ElapsedLabel(since: since) }
-                if model.usesMic { VoiceToggle(on: model.voiceOn) { model.toggleVoice() } }       // voice controls are not needed while typing
-                TypeButton(on: model.typing) { model.typing.toggle() }
-                NewChatButton { model.newConversation() }
-                FreshButton { model.startFresh() }
-            }
-            .padding(.horizontal, 14).padding(.vertical, 6)
-            .background(Capsule().fill(.white.opacity(0.07)).overlay(Capsule().stroke(.white.opacity(0.10), lineWidth: 0.5)))
-
-            if model.typing { TypeBox(model: model).transition(.opacity) }
+            if model.usesMic { VoiceInputView(model: model) } else { TypingInputView(model: model) }
 
             if !model.transcript.isEmpty {
                 CaptionView(text: "“\(model.transcript)”").transition(.opacity)
             }
 
-            if model.conversational && model.notice.isEmpty && model.usesMic
-                && (model.phase == .listening || model.phase == .thinking || model.phase == .acting || model.speaking || model.jobActive || model.phase == .music) {
-                Text(model.phase == .music ? "Say “Prometheus …” (or press F10) to talk to me"
-                     : model.jobActive ? "Working on it. Keep talking, say “stop” to cancel"
-                     : model.phase == .listening && !model.speaking ? "Say “goodbye” or press F10 to end"
-                                                                    : (model.duplex == "half" ? "Press F10 to interrupt" : "Just start talking (or press F10) to interrupt"))
-                    .font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.4))
-            }
+            if model.usesMic { VoiceHint(model: model) }
 
             if model.phase == .music && !model.musicTitle.isEmpty {
                 Text("♪ \(model.musicTitle)").font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.85))

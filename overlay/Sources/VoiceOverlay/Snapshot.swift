@@ -48,6 +48,12 @@ func renderSnapshots(to dir: String) {
         $0.steps = [Step(text: "Opened youtube.com", done: true), Step(text: "Clicking: first video result", done: false)]
         $0.result = "Found it. Opening the first result."
     }
+    shot("15_typing_working") {
+        $0.phase = .listening; $0.mode = "prometheus"; $0.typing = true; $0.jobActive = true
+        $0.transcript = "Can you open linkedin"
+        $0.checklist = [ChecklistItem(text: "Opened https://www.linkedin.com", status: "done")]
+        $0.result = "Opened https://www.linkedin.com"      // restates the checklist: must not appear twice
+    }
     shot("11_music") { $0.phase = .music; $0.mode = "prometheus"; $0.musicTitle = "Queen – Bohemian Rhapsody (Official Video Remastered)" }
     shot("13_long_speaking") { $0.phase = .thinking; $0.mode = "prometheus"; $0.speaking = true
         $0.transcript = String(repeating: "Here is a long answer that keeps going so the caption has to grow and then scroll to follow the newest words. ", count: 2) }
