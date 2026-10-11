@@ -7,7 +7,7 @@ struct Ribbons: View {
     let phase: Phase
 
     var body: some View {
-        TimelineView(UIMotion.schedule(phase == .listening || phase == .transcribing ? 24 : 8)) { tl in     // fast only while it follows your voice
+        TimelineView(UIMotion.full) { tl in
             Canvas { ctx, size in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 let w = size.width, h = size.height, mid = h / 2
@@ -29,11 +29,7 @@ struct Ribbons: View {
                     (palette.c, 0.60, 3.1, 3.4),
                 ]
                 ctx.blendMode = .plusLighter
-                // A soft halo drawn as a wider, fainter copy of each ribbon: looks like a glow but needs no GPU blur filter,
-                // which at 30 frames a second was a large part of the desktop's drawing load.
-                for (grow, strength) in [(1.30, 0.20), (1.0, 1.0)] {
-                for (color, scale0, speed, offset) in layers {
-                    let scale = scale0 * grow
+                for (color, scale, speed, offset) in layers {
                     for mirror in [1.0, -1.0] {
                         var path = Path()
                         path.move(to: CGPoint(x: 0, y: mid))
@@ -49,10 +45,9 @@ struct Ribbons: View {
                         path.addLine(to: CGPoint(x: w, y: mid))
                         path.closeSubpath()
                         ctx.fill(path, with: .linearGradient(
-                            Gradient(colors: [color.opacity(0.0), color.opacity(0.85 * strength), color.opacity(0.0)]),
+                            Gradient(colors: [color.opacity(0.0), color.opacity(0.85), color.opacity(0.0)]),
                             startPoint: CGPoint(x: 0, y: mid), endPoint: CGPoint(x: w, y: mid)))
                     }
-                }
                 }
                 // bright core
                 var core = Path()
@@ -61,6 +56,8 @@ struct Ribbons: View {
                     Gradient(colors: [.white.opacity(0), .white.opacity(0.95), .white.opacity(0)]),
                     startPoint: CGPoint(x: 0, y: mid), endPoint: CGPoint(x: w, y: mid)))
             }
+            .blur(radius: 0.6)
+            .shadow(color: palette.a.opacity(0.55), radius: 10)
         }
     }
 }

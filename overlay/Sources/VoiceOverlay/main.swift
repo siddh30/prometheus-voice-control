@@ -40,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var typingWatch: AnyCancellable?
     var bag = Set<AnyCancellable>()
     var swarmSocket: SwarmSocket?
+    var hosting: NSHostingView<OverlayView>?
+    var fitWatch: AnyCancellable?
+    var fitTimer: Timer?
     var recordingWatch: AnyCancellable?
     var swarmWatch: Timer?
 
@@ -71,11 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hosting = NSHostingView(rootView: OverlayView(model: model, onSize: { [weak self] size in
-            DispatchQueue.main.async { self?.sizeSettled(size) }
+            DispatchQueue.main.async { if size.width > 1 { self?.sizeSettled(size) } }
         }))
+        self.hosting = hosting
         // The app sizes the window itself (place(size:)). Left to SwiftUI, the hosting view re-negotiates the window's size limits with the
         // window server on every animation frame, which blocks this app for half of its time and stalls the whole desktop while it animates.
-        if #available(macOS 13.0, *) { hosting.sizingOptions = [] }
+        if #available(macOS 13.0, *) { hosting.sizingOptions = [.intrinsicContentSize] }      // reports its size; no min/max window-limit negotiation
         panel = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.contentView = hosting
@@ -93,6 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loadAnchor()
         adaptToScreen()
         place(size: CGSize(width: 260, height: 60))       // until the widget reports its real size
+        // The window follows the widget's real size. SwiftUI's own size report proved unreliable inside this window (it said 0 x 0), so the
+        // hosting view is asked directly whenever anything changes, and once a second as a safety net.
+        fitWatch = model.objectWillChange.merge(with: model.swarm.objectWillChange).debounce(for: .milliseconds(60), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.refit() }
+        fitTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.refit() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.refit() }
         panel.orderFrontRegardless()
 
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
@@ -118,11 +128,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else { defaultAnchor() }
     }
 
+    func refit() {
+        guard let hosting else { return }
+        let size = hosting.fittingSize
+        if size.width > 1, size.height > 1 { sizeSettled(size) }
+    }
+
     private var pendingSize: CGSize?
     private var sizeTimer: Timer?
     /// The widget reports its size on every layout pass (including during its own animations). Resizing a window costs the window server real
     /// work, so only the size it settles on is applied: tiny changes are ignored and bursts are merged into one resize.
     func sizeSettled(_ size: CGSize) {
+        if ProcessInfo.processInfo.environment["VOICECTL_DEBUG_SIZE"] != nil { FileHandle.standardError.write("size reported: \(size) current: \(panel.frame.size)\n".data(using: .utf8)!) }
         let current = panel.frame.size
         if abs(size.width - current.width) < 2 && abs(size.height - current.height) < 2 { return }
         pendingSize = size
