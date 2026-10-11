@@ -10,7 +10,8 @@ from voicectl.core.maintenance import Maintenance
 from voicectl.core.memory import Memory
 from voicectl.core.session import SessionManager, State
 from voicectl.core.wake import WakeListener
-from voicectl.input.app_keys import route_app_keys
+from voicectl.api import Control
+from voicectl.input.app_keys import handle_key
 from voicectl.input.hotkeys import HotkeyListener
 from voicectl.input.mic import Mic
 from voicectl.telemetry import phoenix as telemetry
@@ -64,13 +65,13 @@ async def run() -> None:
         maint.on_restart = lambda: asyncio.get_running_loop().call_later(1.0, os._exit, 0)
     maint.start()
 
-    async def ui_maintenance() -> None:
-        async for ev in bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "maintenance":
-                report = await maint.clean(force=True)
-                log.info("manual memory cleanup: %s", report)
-                bus.publish("notice", text=f"Memory cleaned: {report}")
-    maint_task = asyncio.create_task(ui_maintenance())
+    control = Control(bus)                                   # every front-end command arrives here (see voicectl/api)
+
+    @control.on("maintenance")
+    async def _maintenance(_cmd) -> None:
+        report = await maint.clean(force=True)
+        log.info("manual memory cleanup: %s", report)
+        bus.publish("notice", text=f"Memory cleaned: {report}")
 
     def forget_conversation() -> None:
         for m in mode_objs.values():
@@ -79,32 +80,22 @@ async def run() -> None:
 
     ctx.shared["forget_conversation"] = forget_conversation
 
-    async def ui_fresh() -> None:
-        async for ev in bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "fresh":
-                log.info("start fresh: %s", await maint.start_fresh(forget_conversation))
-    fresh_task = asyncio.create_task(ui_fresh())
+    @control.on("fresh")
+    async def _fresh(_cmd) -> None:
+        log.info("start fresh: %s", await maint.start_fresh(forget_conversation))
 
-    async def ui_newchat() -> None:
-        async for ev in bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "newchat":
-                log.info("%s", await maint.new_conversation(forget_conversation))
-    newchat_task = asyncio.create_task(ui_newchat())
+    @control.on("newchat")
+    async def _newchat(_cmd) -> None:
+        log.info("%s", await maint.new_conversation(forget_conversation))
 
-    async def ui_voice() -> None:
-        async for ev in bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "voice":
-                speaker.set_voice(bool(ev.data.get("on")))
-    voice_task = asyncio.create_task(ui_voice())
+    control.on("voice", lambda cmd: speaker.set_voice(cmd["on"]))
 
     hotkey_map = {m: k for m in mode_objs if (k := config.get(f"hotkeys.{m}"))}
     cancel_key = config.get("hotkeys.cancel", "esc")
     app_owns_keys = os.environ.get("VOICECTL_HOTKEYS") == "app"
-    key_task = None
     if app_owns_keys:       # Voice Control.app captures keys (it has the macOS permissions) and sends them over the bridge
-        key_task = asyncio.create_task(route_app_keys(
-            bus, {k: m for m, k in hotkey_map.items()}, cancel_key,
-            session.key_down, session.key_up, session.cancel))
+        name_to_mode = {k: m for m, k in hotkey_map.items()}
+        control.on("key", lambda cmd: handle_key(cmd.args, name_to_mode, cancel_key, session.key_down, session.key_up, session.cancel))
         hotkeys = None
     else:                   # terminal/dev: listen directly with pynput
         hotkeys = HotkeyListener(asyncio.get_running_loop(), hotkey_map, cancel_key,
@@ -142,31 +133,28 @@ async def run() -> None:
                             lambda rest, heard: session.wake(primary, rest, heard))
         wake.start()
 
-    async def ui_text() -> None:
-        async for ev in bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "text" and primary in mode_objs:
-                typed = str(ev.data.get("text", "")).strip()
-                if not typed:
-                    continue
-                if session.conversation_active():
-                    await mode_objs[primary].submit_text(typed)          # interrupts what it is saying or doing
-                else:
-                    session.wake(primary, typed)                          # not in a conversation yet: start one with your message
-    text_task = asyncio.create_task(ui_text())
+    @control.on("text")
+    async def _text(cmd) -> None:
+        typed = cmd["text"].strip()
+        if not typed or primary not in mode_objs:
+            return
+        if session.conversation_active():
+            await mode_objs[primary].submit_text(typed)          # interrupts what it is saying or doing
+        else:
+            session.wake(primary, typed)                          # not in a conversation yet: start one with your message
 
-    async def ui_input_mode() -> None:
-        async for ev in bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "input_mode" and primary in mode_objs:
-                mode = mode_objs[primary]
-                if hasattr(mode, "set_typed_only"):
-                    mode.set_typed_only(ev.data.get("mode") == "typed")
-    input_mode_task = asyncio.create_task(ui_input_mode())
+    @control.on("input_mode")
+    def _input_mode(cmd) -> None:
+        mode = mode_objs.get(primary)
+        if mode is not None and hasattr(mode, "set_typed_only"):
+            mode.set_typed_only(cmd["mode"] == "typed")
 
-    async def ui_wake_toggle() -> None:
-        async for ev in bus.subscribe():
-            if ev.type == "ui_command" and ev.data.get("command") == "wake" and wake:
-                wake.set_enabled(bool(ev.data.get("enabled")))
-    wake_toggle_task = asyncio.create_task(ui_wake_toggle())
+    @control.on("wake")
+    def _wake(cmd) -> None:
+        if wake:
+            wake.set_enabled(cmd["enabled"])
+
+    control_task = asyncio.create_task(control.run())
 
     keys = ", ".join(f"{k.upper()}={m}" for m, k in hotkey_map.items())
     log.info("Ready. %s (%s mode). Ctrl+C to quit.", keys, config.get("recording.mode", "toggle"))
@@ -175,12 +163,8 @@ async def run() -> None:
     finally:
         if hotkeys:
             hotkeys.stop()
-        if key_task:
-            key_task.cancel()
         bridge_task.cancel()
-        wake_toggle_task.cancel()
-        maint_task.cancel()
-        voice_task.cancel()
+        control_task.cancel()
         maint.stop()
         if wake:
             wake.stop()
