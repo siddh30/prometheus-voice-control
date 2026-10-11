@@ -17,7 +17,7 @@ import logging
 import os
 import re
 import shutil
-import subprocess
+from voicectl import platform
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -383,7 +383,7 @@ class DevToolsBrowser:
     # ---- setup helper (used by the chrome_setup tool) ----
     async def enable_apple_events(self) -> str:
         """Open Chrome's remote-debugging page for the user. (Named for the tool contract; nothing to do with Apple Events here.)"""
-        subprocess.run(["open", "-a", "Google Chrome", "chrome://inspect/#remote-debugging"], check=False)
+        platform.current().open_application("Google Chrome", "chrome://inspect/#remote-debugging")
         raise DevToolsError("I've opened Chrome's remote-debugging page. The user needs to switch on Remote Debugging there (one time) "
                             "and click Allow if Chrome asks, then tell you it's done. Say that in one plain sentence and wait; "
                             "do not call chrome_setup again until they say it's done.")

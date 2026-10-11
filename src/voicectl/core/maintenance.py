@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import os
-import subprocess
+from voicectl import platform
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -51,8 +51,7 @@ class Report:
 
 def rss_mb() -> float:
     """This process's resident memory in MB."""
-    out = subprocess.run(["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True).stdout.strip()
-    return int(out) / 1024 if out.isdigit() else 0.0
+    return platform.current().process_rss_kb(os.getpid()) / 1024
 
 
 async def summarize(text: str) -> str:

@@ -126,7 +126,7 @@ async def test_stop_when_idle_is_just_a_normal_sentence():
 async def test_exact_commands_skip_the_model_and_are_remembered_for_the_agent(monkeypatch):
     import voicectl.actions._sys as s
     calls = []
-    monkeypatch.setattr(s.subprocess, "run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
     m, runner, spk, bus = make()
     assert await m.respond("open Safari") == "Opened Safari"
     assert calls == [["open", "-a", "Safari"]] and runner.turns == []         # no model call

@@ -94,6 +94,6 @@ async def test_polite_request_skips_the_model():
 def test_open_linkedin_opens_the_website_not_an_app(monkeypatch):
     import voicectl.actions._sys as s
     calls = []
-    monkeypatch.setattr(s.subprocess, "run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
     res = actions.get("open_app")().run(app="LinkedIn")
     assert calls == [["open", "https://www.linkedin.com"]] and res.spoken == "Opening LinkedIn."

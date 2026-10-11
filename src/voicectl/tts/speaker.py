@@ -6,7 +6,7 @@ import json
 import logging
 import math
 import re
-import subprocess
+from voicectl import platform
 import tempfile
 import time
 import wave
@@ -57,8 +57,7 @@ def decode_pcm(path: Path) -> np.ndarray | None:
     try:
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "ref.wav"
-            subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(path), str(out)],
-                           check=True, capture_output=True, timeout=10)
+            platform.current().to_wav16k(str(path), str(out))
             with wave.open(str(out), "rb") as w:
                 return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype("float32") / 32768.0
     except Exception:
@@ -241,8 +240,7 @@ class Speaker:
             return
         Speaker._last_end = time.monotonic() + ms / 1000          # the real playback will see "just woken"
         async def go() -> None:
-            p = await asyncio.create_subprocess_exec("afplay", str(self._silence(ms)),
-                                                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            p = await platform.current().start_playback(str(self._silence(ms)))
             await p.wait()
         asyncio.get_running_loop().create_task(go())
 
@@ -314,12 +312,10 @@ class Speaker:
         return path
 
     async def _say(self, text: str, path: Path) -> Path:
-        p = await asyncio.create_subprocess_exec("say", "-o", str(path), text)
-        await p.wait()
+        await platform.current().say_to_file(text, str(path))
         return path
 
     async def _play(self, path: Path) -> None:
-        self._proc = await asyncio.create_subprocess_exec("afplay", str(path), stdout=asyncio.subprocess.DEVNULL,
-                                                          stderr=asyncio.subprocess.DEVNULL)
+        self._proc = await platform.current().start_playback(str(path))
         await self._proc.wait()
         Speaker._last_end = time.monotonic()

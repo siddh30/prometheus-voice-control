@@ -26,7 +26,7 @@ def test_patterns():
 def test_run_action_uses_subprocess(monkeypatch):
     calls = []
     import voicectl.actions._sys as s
-    monkeypatch.setattr(s.subprocess, "run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
     res = router.run_action("open safari", use_llm=False)
     assert res.ok and calls == [["open", "-a", "Safari"]]
     assert router.run_action("sleep", use_llm=False).ok and calls[-1] == ["pmset", "sleepnow"]

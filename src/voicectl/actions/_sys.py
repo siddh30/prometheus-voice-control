@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import subprocess
-
+from voicectl import platform
 from voicectl.actions.base import ActionResult
 
 
 def sh(cmd: list[str]) -> ActionResult:
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = platform.current().run(cmd)
     if p.returncode == 0:
         return ActionResult(True, "")
     return ActionResult(False, (p.stderr or p.stdout).strip() or f"exit {p.returncode}")
 
 
 def osascript(script: str) -> ActionResult:
-    return sh(["osascript", "-e", script])
+    r = platform.current().osascript(script)
+    return ActionResult(True, "") if r.returncode == 0 else ActionResult(False, (r.stderr or r.stdout).strip() or f"exit {r.returncode}")

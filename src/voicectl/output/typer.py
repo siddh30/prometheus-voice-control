@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import subprocess
+from voicectl import platform
 import time
 
 from pynput.keyboard import Controller, Key
@@ -24,14 +24,14 @@ class Typer:
             self._paste(text)
 
     def _paste(self, text: str) -> None:
-        previous = subprocess.run(["pbpaste"], capture_output=True).stdout if self.restore_clipboard else None
-        subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        previous = platform.current().clipboard_read() if self.restore_clipboard else None
+        platform.current().clipboard_write(text.encode())
         with self._kb.pressed(Key.cmd):
             self._kb.press("v")
             self._kb.release("v")
         if previous is not None:
             time.sleep(0.25)  # let the target app read the clipboard before we restore it
-            subprocess.run(["pbcopy"], input=previous, check=True)
+            platform.current().clipboard_write(previous)
 
 
 class AppTyper:

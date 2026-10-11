@@ -103,7 +103,7 @@ def test_volume_number_words():
 def test_set_volume_runs_with_a_spoken_number(monkeypatch):
     import voicectl.actions._sys as s
     calls = []
-    monkeypatch.setattr(s.subprocess, "run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: calls.append(cmd) or type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
     res = actions.get("set_volume")().run(level="forty five")
     assert res.ok and "45" in calls[0][-1]
     assert not actions.get("set_volume")().run(level="loud").ok

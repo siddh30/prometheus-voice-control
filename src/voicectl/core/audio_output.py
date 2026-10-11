@@ -5,7 +5,7 @@ deaf while it speaks. With headphones there is no echo and talking over it can s
 
 import json
 import re
-import subprocess
+from voicectl import platform
 import time
 
 HEADPHONES = re.compile(r"airpods|headphone|headset|ear\s?buds?|\bbuds\b|beats|bose|wh-1000|wf-1000|jabra|plantronics|sennheiser", re.I)
@@ -19,7 +19,7 @@ def default_output(ttl_s: float = 60.0) -> tuple[str, str]:
         return _cache[1]
     result = ("", "")
     try:
-        raw = subprocess.run(["system_profiler", "SPAudioDataType", "-json"], capture_output=True, text=True, timeout=20).stdout
+        raw = platform.current().audio_devices_json()
         for group in json.loads(raw).get("SPAudioDataType", []):
             for item in group.get("_items", []):
                 if any(k.startswith("coreaudio_default_audio_output") and str(v).endswith("yes") for k, v in item.items()):

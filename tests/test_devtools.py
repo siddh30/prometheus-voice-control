@@ -130,7 +130,7 @@ async def test_setup_errors_are_plain_and_never_suggest_workarounds():
 async def test_chrome_setup_opens_the_page_and_tells_the_user_what_to_do(monkeypatch):
     import voicectl.agents.devtools as dt
     opened = []
-    monkeypatch.setattr(dt.subprocess, "run", lambda cmd, **k: opened.append(cmd))
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: opened.append(cmd))
     with pytest.raises(DevToolsError) as e:
         await DevToolsBrowser(FakeClient()).enable_apple_events()
     assert opened == [["open", "-a", "Google Chrome", "chrome://inspect/#remote-debugging"]]

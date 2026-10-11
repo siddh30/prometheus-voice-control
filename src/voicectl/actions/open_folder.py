@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import subprocess
+from voicectl import platform
 from pathlib import Path
 
 from voicectl.actions._sys import sh
@@ -13,8 +13,7 @@ KNOWN = {"downloads": HOME / "Downloads", "documents": HOME / "Documents", "desk
 
 
 def _spotlight(name: str) -> Path | None:
-    out = subprocess.run(["mdfind", "-onlyin", str(HOME), f'kMDItemFSName == "{name}"c && kMDItemContentType == "public.folder"'],
-                         capture_output=True, text=True).stdout.splitlines()
+    out = platform.current().find_folders(name, str(HOME))
     out = [p for p in out if "/Library/" not in p and "/." not in p and "/node_modules/" not in p]
     return Path(min(out, key=len)) if out else None
 

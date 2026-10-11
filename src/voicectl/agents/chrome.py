@@ -13,6 +13,8 @@ Voice Control may control Chrome (System Settings > Privacy & Security > Automat
 import asyncio
 import json
 
+from voicectl import platform
+
 from voicectl.agents.browser import READ_JS, click_js, format_page, media_js, press_js, scroll_js, type_js
 
 JS_OFF_HELP = ("SETUP NEEDED: Chrome isn't allowing remote control yet (its 'Allow JavaScript from Apple Events' setting is off). "
@@ -144,21 +146,18 @@ class ChromeBrowser:
 
     # ---- plumbing ----
     async def _osa(self, script: str, *args: str, timeout: float = 25.0) -> str:
-        proc = await asyncio.create_subprocess_exec("osascript", "-e", script % {"app": self.app}, *args,
-                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout)
+            code, out, err = await platform.current().osascript_async(script % {"app": self.app}, *args, timeout=timeout)
         except asyncio.TimeoutError:
-            proc.kill()
             raise ChromeError("Chrome didn't answer in time.")
-        if proc.returncode != 0:
-            msg = err.decode().strip()
+        if code != 0:
+            msg = err.strip()
             if "turned off" in msg or "JavaScript through AppleScript" in msg:
                 raise ChromeError(JS_OFF_HELP)
             if "-1743" in msg or "Not authorized" in msg:
                 raise ChromeError(AUTOMATION_HELP)
             raise ChromeError(msg or "Chrome control failed.")
-        return out.decode().rstrip("\n")
+        return out.rstrip("\n")
 
     async def _tab(self) -> int:
         """The one tab Prometheus works in. Created on first use in the front window; reused afterwards."""
