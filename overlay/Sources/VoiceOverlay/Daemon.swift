@@ -17,9 +17,11 @@ final class DaemonSupervisor {
         root = URL(fileURLWithPath: path)
         let profile = (try? String(contentsOf: root.appendingPathComponent("profile.txt"), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? "dev"
-        let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/VoiceControl")
-        dataDir = profile == "stable" ? support.appendingPathComponent("data") : root.appendingPathComponent("data-\(profile)")
-        phoenixDir = profile == "stable" ? support.appendingPathComponent("phoenix_data") : root.appendingPathComponent("phoenix_data")
+        let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        let support = base.appendingPathComponent(profile == "swarm" ? "PrometheusSwarm" : "VoiceControl")
+        let installed = profile == "stable" || profile == "swarm"
+        dataDir = installed ? support.appendingPathComponent("data") : root.appendingPathComponent("data-\(profile)")
+        phoenixDir = installed ? support.appendingPathComponent("phoenix_data") : root.appendingPathComponent("phoenix_data")
     }
 
     func start() {

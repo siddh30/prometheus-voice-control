@@ -9,7 +9,9 @@ import yaml
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[3]
-APP_SUPPORT = Path.home() / "Library" / "Application Support" / "VoiceControl"
+SUPPORT = Path.home() / "Library" / "Application Support"
+APP_SUPPORT = SUPPORT / "VoiceControl"
+SWARM_SUPPORT = SUPPORT / "PrometheusSwarm"       # the swarm app is a separate application: nothing shared with Voice Control
 
 
 def _profile() -> str:
@@ -23,7 +25,8 @@ def _profile() -> str:
 
 PROFILE = _profile()
 DATA_DIR = (Path(os.environ["VOICECTL_DATA"]) if os.environ.get("VOICECTL_DATA")
-            else APP_SUPPORT / "data" if PROFILE == "stable" else ROOT / f"data-{PROFILE}")
+            else APP_SUPPORT / "data" if PROFILE == "stable"
+            else SWARM_SUPPORT / "data" if PROFILE == "swarm" else ROOT / f"data-{PROFILE}")
 
 
 @dataclass(frozen=True)

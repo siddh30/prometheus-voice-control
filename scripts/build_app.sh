@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds "Voice Control.app" (overlay + icon), installs it to ~/Applications.
+# Builds "$APP_NAME.app" (default "Voice Control") (overlay + icon), installs it to ~/Applications.
 #   scripts/build_app.sh [PROJECT_DIR]   PROJECT_DIR is the code the app will run (a release folder, see release.sh);
 #                                        default: this working folder.
 # Drag it from there to the Dock. Opening it starts Phoenix, the voice daemon, and the widget.
@@ -7,7 +7,9 @@ set -e
 cd "$(dirname "$0")/.."
 SRC="$PWD"
 ROOT="${1:-$PWD}"
-APP="$HOME/Applications/Voice Control.app"
+NAME="${APP_NAME:-Voice Control}"            # APP_NAME="Prometheus Swarm" builds the separate swarm app
+ID_SUFFIX=$(printf '%s' "$NAME" | tr -d ' ' | tr 'A-Z' 'a-z')
+APP="$HOME/Applications/$NAME.app"
 
 (cd overlay && swift build -c release 2>&1 | grep -E "error|Compiling|Build complete" || true)
 BIN=overlay/.build/release/VoiceOverlay
@@ -31,9 +33,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Voice Control</string>
-  <key>CFBundleDisplayName</key><string>Voice Control</string>
-  <key>CFBundleIdentifier</key><string>com.siddharth.voicecontrol</string>
+  <key>CFBundleName</key><string>$NAME</string>
+  <key>CFBundleDisplayName</key><string>$NAME</string>
+  <key>CFBundleIdentifier</key><string>com.siddharth.$ID_SUFFIX</string>
   <key>CFBundleExecutable</key><string>VoiceControl</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -41,7 +43,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Prometheus controls your Chrome (the sites you already use) when you ask it to browse for you.</string>
-  <key>NSMicrophoneUsageDescription</key><string>Voice Control records your voice while you hold F9, F10 or F11.</string>
+  <key>NSMicrophoneUsageDescription</key><string>$NAME records your voice while you hold F9, F10 or F11.</string>
 </dict></plist>
 PLIST
 # Sign with the stable local certificate when present: macOS ties Accessibility / Input Monitoring /
