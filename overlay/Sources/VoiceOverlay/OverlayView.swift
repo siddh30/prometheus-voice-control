@@ -37,7 +37,7 @@ struct OverlayView: View {
                     .lineLimit(1).fixedSize()
                     .font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.4)
                     .foregroundStyle(model.connected ? Color.white.opacity(model.phase == .idle ? 0.45 : 0.9) : Color.orange.opacity(0.9))
-                if model.phase == .listening, let since = model.listenStart { ElapsedLabel(since: since) }
+                if model.phase == .listening, model.usesMic, let since = model.listenStart { ElapsedLabel(since: since) }
                 VoiceToggle(on: model.voiceOn) { model.toggleVoice() }
                 TypeButton(on: model.typing) { model.typing.toggle() }
                 NewChatButton { model.newConversation() }

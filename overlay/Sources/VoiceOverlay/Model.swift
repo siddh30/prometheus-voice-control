@@ -82,6 +82,7 @@ final class OverlayModel: ObservableObject {
     /// What the pill says. After a run finishes it names the outcome instead of dropping straight to IDLE.
     var label: String {
         if !connected { return "CONNECTING" }
+        if typedTurn && phase == .listening && !speaking { return jobActive ? "WORKING" : "READY" }    // typed: nothing is being listened to
         if speaking && phase != .listening && phase != .transcribing { return "SPEAKING" }
         if jobActive && (phase == .listening || phase == .transcribing) { return "WORKING" }   // never "thinking" while talking
         if phase == .idle { return isActive ? "IDLE" : "PROMETHEUS" }   // resting pill carries the name; once the card is open the tag already says it
