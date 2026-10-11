@@ -193,7 +193,26 @@ MainActor.assumeIsolated {
         renderSnapshots(to: CommandLine.arguments[i + 1])
         exit(0)
     }
+    if let i = CommandLine.arguments.firstIndex(of: "--swarm-icon"), i + 1 < CommandLine.arguments.count {
+        _ = NSApplication.shared
+        renderSwarmIcon(to: CommandLine.arguments[i + 1])
+        exit(0)
+    }
+    if let i = CommandLine.arguments.firstIndex(of: "--swarm-snapshot"), i + 1 < CommandLine.arguments.count {
+        _ = NSApplication.shared
+        renderSwarmSnapshots(to: CommandLine.arguments[i + 1])
+        exit(0)
+    }
     let app = NSApplication.shared
+    // The same binary is also the Prometheus Swarm app (its own bundle): it runs the swarm widget instead of the voice one.
+    let isSwarm = CommandLine.arguments.contains("--swarm") || URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent == "PrometheusSwarm"
+    if isSwarm {
+        app.setActivationPolicy(Bundle.main.bundlePath.hasSuffix(".app") ? .regular : .accessory)
+        let swarm = SwarmAppDelegate()
+        app.delegate = swarm
+        app.run()
+        exit(0)
+    }
     // Inside the .app: normal Dock icon. From the command line: stay invisible (dev mode).
     app.setActivationPolicy(Bundle.main.bundlePath.hasSuffix(".app") ? .regular : .accessory)
     let delegate = AppDelegate()

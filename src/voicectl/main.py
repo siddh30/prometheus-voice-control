@@ -156,9 +156,13 @@ async def run() -> None:
 
     if config.get("swarm.enabled", False):
         try:
-            from voicectl.swarm.wiring import start_swarm
-            from voicectl.agents.shared import runner_for
-            swarm_tasks = start_swarm(config, ctx, lambda: ctx.shared.get("agent_runner") or runner_for(ctx, "prometheus_prompt.txt"), bus)
+            from voicectl.swarm import lock as swarm_lock
+            if not swarm_lock.try_acquire(DATA_DIR):          # the Prometheus Swarm app's own backend already runs it: nothing to do here
+                log.info("the swarm already runs here (pid %s, the Prometheus Swarm app); not starting a second one", swarm_lock.holder(DATA_DIR))
+            else:
+                from voicectl.agents.shared import runner_for
+                from voicectl.swarm.wiring import start_swarm
+                swarm_tasks = start_swarm(config, ctx, lambda: ctx.shared.get("agent_runner") or runner_for(ctx, "prometheus_prompt.txt"), bus)
         except Exception:
             log.exception("Prometheus Swarm could not start; carrying on without it")
 

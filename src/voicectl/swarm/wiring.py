@@ -30,6 +30,12 @@ def swarm_token(data_dir=DATA_DIR) -> str:
         return tok
 
 
+def dashboard_url(hub_url: str, token: str) -> str:
+    """ws://host:port  ->  http://host:port/?token=...  (the address the Prometheus Swarm app and a phone open)."""
+    http = hub_url.replace("wss://", "https://", 1).replace("ws://", "http://", 1).rstrip("/")
+    return f"{http}/?token={token}"
+
+
 def lan_ip() -> str:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -65,6 +71,13 @@ def start_swarm(config: Config, ctx, primary_runner, bus) -> list[asyncio.Task]:
     port = int(config.get("swarm.port", 8780))
     name = (config.get("swarm.name", "") or socket.gethostname().split(".")[0]).strip()
     loop = asyncio.get_running_loop()
+    hub_url = config.get("swarm.hub_url", f"ws://localhost:{port}")
+    if not config.get("swarm.hub", False):
+        # A node knows where the hub is: write the dashboard address (with the token) where the Prometheus Swarm app looks for it.
+        try:
+            (DATA_DIR / "swarm_url.txt").write_text(dashboard_url(hub_url, token) + "\n")
+        except OSError:
+            pass
     if config.get("swarm.hub", False):
         hub = Hub(config.get("swarm.host", "0.0.0.0"), port, token, llm=_llm, summarizer=summarize, default_node=config.get("swarm.default_node", ""))
         tasks.append(loop.create_task(hub.run()))
@@ -75,7 +88,6 @@ def start_swarm(config: Config, ctx, primary_runner, bus) -> list[asyncio.Task]:
             pass
         log.info("Prometheus Swarm dashboard: %s  (open it on your phone)", url)
         ctx.shared["swarm_hub"] = hub
-    hub_url = config.get("swarm.hub_url", f"ws://localhost:{port}")
     node = SwarmNode(name, hub_url, token, AgentExecutor(config, primary_runner, DATA_DIR), config.get("swarm.description", ""),
                      ["browser", "screen", "files"])
     tasks.append(loop.create_task(node.run()))

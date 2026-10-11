@@ -300,6 +300,14 @@ class Hub:
     async def _ui_handler(self, ws: ServerConnection) -> None:
         self.uis.add(ws)
         try:
+            await self._ui_loop(ws)
+        except Exception as e:                           # a dashboard that vanishes (closed, asleep, off the network) is routine
+            log.debug("dashboard connection ended: %s", e)
+        finally:
+            self.uis.discard(ws)
+
+    async def _ui_loop(self, ws: ServerConnection) -> None:
+        if True:
             await ws.send(json.dumps(self.snapshot()))
             async for raw in ws:
                 try:
@@ -313,8 +321,6 @@ class Hub:
                     await self.cancel(str(msg.get("job", "")))
                 elif kind == "approve":
                     await self.approve(str(msg.get("sub", "")), bool(msg.get("ok")))
-        finally:
-            self.uis.discard(ws)
 
     async def _handler(self, ws: ServerConnection) -> None:
         path = urlparse(ws.request.path).path

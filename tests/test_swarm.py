@@ -226,3 +226,31 @@ def test_this_computers_local_settings_override_the_shared_config_but_never_the_
     assert cfgmod.load_config(tmp_path / "config.yaml").get("swarm.enabled") is False        # dev must never join your real swarm
     real = (cfgmod.ROOT / "config.dev.yaml").read_text()
     assert "swarm:" in real and "enabled: false" in real.split("swarm:")[1]
+
+
+def test_a_node_writes_the_hub_address_where_the_swarm_app_looks_for_it():
+    from voicectl.swarm.wiring import dashboard_url
+    assert dashboard_url("ws://my-mac.local:8780", "tok") == "http://my-mac.local:8780/?token=tok"
+    assert dashboard_url("wss://hub.example:443/", "t") == "https://hub.example:443/?token=t"
+
+
+def test_only_one_process_per_computer_runs_the_swarm_and_a_dead_one_is_taken_over(tmp_path):
+    import os, subprocess, sys
+    from voicectl.swarm import lock
+    assert lock.holder(tmp_path) is None and lock.try_acquire(tmp_path)                       # first come, first served
+    assert lock.try_acquire(tmp_path)                                                         # re-acquiring from the same process is fine
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        (tmp_path / "swarm_backend.pid").write_text(str(other.pid))                           # someone else holds it
+        assert lock.holder(tmp_path) == other.pid and lock.try_acquire(tmp_path) is False
+    finally:
+        other.kill(); other.wait()
+    assert lock.holder(tmp_path) is None and lock.try_acquire(tmp_path)                       # it died: a stale file is taken over
+    (tmp_path / "swarm_backend.pid").write_text("not a number")
+    assert lock.holder(tmp_path) is None
+
+
+def test_the_swarm_backend_entry_point_exists():
+    import importlib
+    mod = importlib.import_module("voicectl.swarm.service")
+    assert callable(mod.main) and callable(mod.serve)

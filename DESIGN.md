@@ -265,11 +265,13 @@ Standing rule for changes to this project: check the architecture each time and 
 
 ## Prometheus Swarm
 
-Several of your own computers as one assistant. A **hub** knows who is online, splits a request, hands each part to a **node**, and shows everything on a **dashboard** that works in any browser, including a phone.
+Several of your own computers as one assistant. A **hub** knows who is online, splits a request, hands each part to a **node**, and shows everything in the **Prometheus Swarm app** (a native floating widget in the same style as Prometheus, with its own Dock icon). The same hub also serves a web dashboard for a phone.
+
+The Swarm app is the same binary as the Voice Control overlay started in swarm mode, so it reuses the widget's look and adds no new dependency. Opening it **starts its own backend** (`python -m voicectl.swarm.service`, supervised and restarted by the app): this computer's node, and the hub when config says so, with no microphone, hotkeys or voice. Voice Control is not needed. If Voice Control is also running here, a pid file (`swarm_backend.pid`) lets only one of them run the swarm; the other waits or skips. The widget finds the hub through `swarm_url.txt` in the data folder.
 
 ```mermaid
 flowchart LR
-    subgraph Dash["Dashboard (any browser; a phone is just one)"]
+    subgraph Dash["Prometheus Swarm app (native widget) or any browser (a phone)"]
         D[Devices animation, checklists,<br/>results, approvals, stop]
     end
     subgraph Hub["Hub (one computer)"]
