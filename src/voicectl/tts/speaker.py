@@ -7,6 +7,7 @@ import logging
 import math
 import re
 from voicectl import platform
+from voicectl.tts.engines import Engine, SystemEngine, engine_for
 import tempfile
 import time
 import wave
@@ -71,8 +72,9 @@ class Speaker:
     replies start talking after the first sentence. speak()/speak_many() cancel whatever is playing;
     stop() is called when you start recording."""
 
-    def __init__(self, config: Config, bus: EventBus, prefs_path: Path | None = None) -> None:
+    def __init__(self, config: Config, bus: EventBus, prefs_path: Path | None = None, engine: Engine | None = None) -> None:
         self.config, self.bus = config, bus
+        self.engine = engine or engine_for(config)                    # the voice service; swap it without touching playback
         self.prefs_path = prefs_path or DATA_DIR / "prefs.json"
         self.voice_on = self._load_voice_pref()
         self._proc: asyncio.subprocess.Process | None = None
@@ -222,7 +224,7 @@ class Speaker:
     def prefetch(self, text: str) -> None:
         """Fire-and-forget: synthesize `text` into the cache now, so a later speak() of it starts instantly.
         Used speculatively (the reply may not end up being spoken; the cost is one free synthesis)."""
-        if not self.voice_on or len(text) > 120 or self.config.get("tts.backend", "edge") != "edge":
+        if not self.voice_on or len(text) > 120 or not self.engine.cacheable:
             return
         async def go() -> None:
             try:
@@ -262,22 +264,24 @@ class Speaker:
     async def _synth(self, text: str, tmp: Path) -> Path:
         """Short phrases are cached on disk, so repeats ("Yes?", "Opening LinkedIn.") play instantly."""
         Speaker._n += 1
-        cacheable = len(text) <= 120
-        if self.config.get("tts.backend", "edge") == "edge":
-            cached = self._cache_path(text, "mp3")
+        engine = self.engine
+        if engine.cacheable:
+            cacheable = len(text) <= 120
+            cached = self._cache_path(text, engine.ext)
             if cacheable and cached.exists() and cached.stat().st_size > 0:
                 return cached
             try:
                 if cacheable:
                     self.CACHE.mkdir(parents=True, exist_ok=True)
-                    await self._edge(text, cached.with_suffix(".part"))
+                    await engine.synth(text, cached.with_suffix(".part"))
                     cached.with_suffix(".part").replace(cached)
                     self._prune()
                     return cached
-                return await self._edge(text, tmp / f"{Speaker._n}.mp3")
+                return await engine.synth(text, tmp / f"{Speaker._n}.{engine.ext}")
             except Exception as e:      # offline / service hiccup: fall back to the built-in voice
-                log.warning("Edge TTS failed (%s); using macOS voice", e)
-        return await self._say(text, tmp / f"{Speaker._n}.aiff")
+                log.warning("%s voice failed (%s); using the system voice", type(engine).__name__, e)
+        fallback = SystemEngine()
+        return await fallback.synth(text, tmp / f"{Speaker._n}.{fallback.ext}")
 
     def _prune(self, keep: int = 300) -> None:
         files = sorted(self.CACHE.glob("*.mp3"), key=lambda f: f.stat().st_mtime)
@@ -286,7 +290,7 @@ class Speaker:
 
     async def prewarm(self, phrases: list[str]) -> None:
         """Synthesize fixed phrases in the background at startup so the first use is instant."""
-        if self.config.get("tts.backend", "edge") != "edge":
+        if not self.engine.cacheable:
             return
         with tempfile.TemporaryDirectory() as d:
             for phrase in phrases:
@@ -294,26 +298,6 @@ class Speaker:
                     await self._synth(phrase, Path(d))
                 except Exception as e:
                     log.debug("prewarm failed for %r: %s", phrase, e)
-
-    async def _edge(self, text: str, path: Path) -> Path:
-        import edge_tts
-        com = edge_tts.Communicate(text, self.config.get("tts.voice", "en-US-AriaNeural"),
-                                   rate=self.config.get("tts.rate", "+0%"), boundary="WordBoundary")
-        offsets: list[float] = []
-        with open(path, "wb") as f:
-            async for chunk in com.stream():
-                if chunk["type"] == "audio":
-                    f.write(chunk["data"])
-                elif chunk["type"] == "WordBoundary":
-                    offsets.append(chunk["offset"] / 1e7)          # 100 ns ticks -> seconds
-        if path.stat().st_size == 0:
-            raise RuntimeError("no audio returned")
-        path.with_suffix(".json").write_text(json.dumps(offsets))  # word timings travel with the cached audio
-        return path
-
-    async def _say(self, text: str, path: Path) -> Path:
-        await platform.current().say_to_file(text, str(path))
-        return path
 
     async def _play(self, path: Path) -> None:
         self._proc = await platform.current().start_playback(str(path))
