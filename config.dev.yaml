@@ -17,3 +17,6 @@ telemetry:
   project: voicectl-dev
 agent:
   warm_on_launch: false   # my test runs never spawn the agent or the browser bridge by themselves
+
+swarm:
+  enabled: false          # dev never joins your real swarm

@@ -47,12 +47,13 @@ def _merge(base: dict, over: dict) -> dict:
 
 
 def load_config(path: Path | None = None) -> Config:
-    """config.yaml, then config.<profile>.yaml on top (the dev profile silences hotkeys, mic, voice and uses a hidden browser)."""
+    """config.yaml, then config.local.yaml (this computer's own settings: git-ignored, e.g. the swarm), then config.<profile>.yaml on top
+    (the dev profile silences hotkeys, mic, voice and uses a hidden browser)."""
     load_dotenv(ROOT / ".env")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     path = path or ROOT / "config.yaml"
     raw = yaml.safe_load(path.read_text()) or {}
-    overlay = path.with_name(f"config.{PROFILE}.yaml")
-    if overlay.exists():
-        raw = _merge(raw, yaml.safe_load(overlay.read_text()) or {})
+    for overlay in (path.with_name("config.local.yaml"), path.with_name(f"config.{PROFILE}.yaml")):
+        if overlay.exists():
+            raw = _merge(raw, yaml.safe_load(overlay.read_text()) or {})
     return Config(raw)

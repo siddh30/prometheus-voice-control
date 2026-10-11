@@ -212,3 +212,17 @@ async def test_a_node_runs_tasks_with_its_agent_and_survives_its_own_failures_an
         runner.cancel()
         await asyncio.gather(runner, return_exceptions=True)
         await hub.stop()
+
+
+def test_this_computers_local_settings_override_the_shared_config_but_never_the_dev_profile(tmp_path, monkeypatch):
+    from voicectl.core import config as cfgmod
+    (tmp_path / "config.yaml").write_text("swarm:\n  enabled: false\n  hub: false\n  port: 8780\nx: 1\n")
+    (tmp_path / "config.local.yaml").write_text("swarm:\n  enabled: true\n  hub: true\n")
+    (tmp_path / "config.dev.yaml").write_text("swarm:\n  enabled: false\n")
+    monkeypatch.setattr(cfgmod, "PROFILE", "stable")
+    c = cfgmod.load_config(tmp_path / "config.yaml")
+    assert c.get("swarm.enabled") is True and c.get("swarm.hub") is True and c.get("swarm.port") == 8780 and c.get("x") == 1
+    monkeypatch.setattr(cfgmod, "PROFILE", "dev")
+    assert cfgmod.load_config(tmp_path / "config.yaml").get("swarm.enabled") is False        # dev must never join your real swarm
+    real = (cfgmod.ROOT / "config.dev.yaml").read_text()
+    assert "swarm:" in real and "enabled: false" in real.split("swarm:")[1]
