@@ -214,6 +214,7 @@ class AgentRunner:
         self._session_row: int | None = None
         self._recap_session: int | None = None      # the previous conversation to recap into a fresh session
         self._approval: asyncio.Future[bool] | None = None
+        self.timeline = None                 # a TurnTimeline for the current turn (set by the mode), or None
         self.mode_name = "agent"      # the mode the UI shows while this runs (Prometheus sets "assistant")
         self.task = ""                # what it is currently working on
         self.last_step = ""
@@ -513,6 +514,8 @@ class AgentRunner:
                 prompt = (f"{hints}\n" if hints else "") + (f"<ConversationContext>\n{context}\n</ConversationContext>\n" if context else "") \
                          + f"\nRequest: {text}"
             await client.query(prompt)
+            if self.timeline:
+                self.timeline.mark("query_sent")
 
             steps: dict[str, str] = {}
             open_blocks: dict[tuple[int, int], int] = {}        # (message number, block index) -> text block id
@@ -541,6 +544,8 @@ class AgentRunner:
                     e, kind = msg.event, msg.event.get("type")
                     if kind == "message_start":
                         msg_no += 1
+                        if self.timeline:
+                            self.timeline.mark("model_reply_started")
                     elif kind == "content_block_start" and e["content_block"].get("type") == "text":
                         self._block_ids += 1
                         open_blocks[(msg_no, e["index"])] = self._block_ids
@@ -572,6 +577,8 @@ class AgentRunner:
                                 self.played_media = True
                             tool_calls += 1
                             uses[b.id] = (b.name.split("__")[-1], dict(b.input or {}))
+                            if self.timeline:
+                                self.timeline.tool_start(b.id, b.name.split("__")[-1])
                             if cap and tool_calls > cap:                 # a one-step request that keeps going: stop it
                                 capped = True
                                 break
@@ -588,6 +595,8 @@ class AgentRunner:
                         if isinstance(b, ToolResultBlock) and b.tool_use_id in steps:
                             self.bus.publish("step", text=steps[b.tool_use_id], done=True, failed=bool(b.is_error))
                             outcome.append(("FAILED: " if b.is_error else "") + steps[b.tool_use_id][:70])
+                            if self.timeline:
+                                self.timeline.tool_end(b.tool_use_id, not b.is_error)
                             if (rec := self._action_record(*uses.get(b.tool_use_id, ("", {})), ok=not b.is_error)):
                                 records.append(rec)
                                 self.learnings.record_action(*rec[:3], ok=rec[3])

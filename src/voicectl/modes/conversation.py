@@ -13,7 +13,9 @@ from voicectl.core.audio_output import wearing_headphones
 from voicectl.core.echo import TalkOverDetector
 from voicectl.core.ears import Ears, Utterance
 from voicectl.core.memory import Memory
+from voicectl.core.timeline import TurnTimeline
 from voicectl.core.vad import VadEndpointer
+from voicectl.telemetry import phoenix as tel
 from voicectl.modes.base import Mode, ModeContext, modes
 
 log = logging.getLogger("voicectl.conversation")
@@ -84,7 +86,8 @@ def farewell(heard: str = "") -> str:
     return pick
 
 
-PHRASES = [*GREETINGS, *FAREWELLS, *THANKS_REPLIES, *NIGHT_REPLIES, *IDLE_FAREWELLS, "I'm listening.", "Sorry, something went wrong. Try again.",
+PHRASES = ["Scrolling.", "Going back.", "Going forward.", "Reloading.", "New tab.", "Closing the tab.", "Paused.", "Playing.", "Muted.", "Unmuted.",
+           "That's the bottom.", "That's the top.", *GREETINGS, *FAREWELLS, *THANKS_REPLIES, *NIGHT_REPLIES, *IDLE_FAREWELLS, "I'm listening.", "Sorry, something went wrong. Try again.",
            "Sorry, I didn't catch that.", "I keep running into errors, so I'll stop for now.", "Done.",
            "On it.", "Sure, on it.", "Got it, working on that.", "Okay, let me do that.", "Okay, stopped.", "Okay.",
            "Okay, I won't.", "Nothing is running right now."]
@@ -201,6 +204,7 @@ class ConversationMode(Mode):
         self._false_barges = 0                         # times we cut ourselves off for nothing
         self._user_talking = False                     # you are mid-sentence: don't talk over you with announcements
         self._t_end = self._t_text = 0.0               # latency marks (monotonic)
+        self._tl: TurnTimeline | None = None
         self.ears_factory = self._default_ears        # tests substitute a scripted listener
 
     def _state(self, state: str) -> None:
@@ -394,6 +398,8 @@ class ConversationMode(Mode):
     async def run(self, mic, stt, initial: str = "") -> None:
         bus, cfg = self.ctx.bus, self.ctx.config
         self.history, self._turn, self._errors, self._ending = [], None, 0, False
+        self.session_id = tel.new_session_id()                 # = the conversation's start time (epoch seconds): every trace carries it
+        log.info("conversation session %s (started %s)", self.session_id, tel.session_label(self.session_id))
         self._end = asyncio.Event()
         no_speech_s = cfg.get("conversation.no_speech_s", 15.0)
         async def transcribe(audio) -> str:                    # runs speculatively inside the ears, before you've fully stopped
@@ -513,8 +519,10 @@ class ConversationMode(Mode):
                 return
             self._state("thinking")
             self.history.append({"role": "user", "content": text})
+            self._tl = TurnTimeline(self._t_end, self._t_text, session_id=getattr(self, "session_id", ""))   # where this turn's time goes
             try:
-                reply = await self.respond(text)
+                with tel.session_context(getattr(self, "session_id", "")):      # the agent's own spans join the same session
+                    reply = await self.respond(text)
             except asyncio.CancelledError:
                 self.history.append({"role": "assistant", "content": "(interrupted by the user)"})
                 raise
@@ -542,6 +550,8 @@ class ConversationMode(Mode):
     def _log_latency(self) -> None:
         spk = self.ctx.speaker
         first = getattr(spk, "first_audio_at", 0.0) if spk else 0.0
+        if (tl := getattr(self, "_tl", None)) is not None:
+            tl.emit(first)
         if self._t_end and self._t_text and first > self._t_text:
             log.info("latency: stop talking -> text %.2fs | text -> voice %.2fs | total %.2fs",
                      self._t_text - self._t_end, first - self._t_text, first - self._t_end)

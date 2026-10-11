@@ -47,7 +47,7 @@ class FakeSpeaker:
 
 
 def make():
-    cfg = Config({"tts": {"enabled": True}, "conversation": {"output": "headphones"}, "wake_word": {"enabled": False}})
+    cfg = Config({"tts": {"enabled": True}, "conversation": {"output": "headphones"}, "wake_word": {"enabled": False}, "agent": {"fast_chat": False}})
     bus = EventBus()
     ctx = ModeContext(cfg, bus, FakeSpeaker())
     runner = FakeRunner()
@@ -146,7 +146,7 @@ async def test_everything_else_goes_to_the_one_agent_even_small_talk_and_tasks()
 
 
 async def test_no_voice_just_shows_the_words():
-    cfg = Config({"tts": {"enabled": False}, "conversation": {"output": "headphones"}, "wake_word": {"enabled": False}})
+    cfg = Config({"tts": {"enabled": False}, "conversation": {"output": "headphones"}, "wake_word": {"enabled": False}, "agent": {"fast_chat": False}})
     bus = EventBus()
     ctx = ModeContext(cfg, bus, None)
     runner = FakeRunner(); ctx.shared["agent_runner"] = runner
@@ -310,3 +310,79 @@ async def test_the_recap_survives_restarts_that_open_empty_sessions(tmp_path):
     mem.new_session(); mem.new_session()                                    # two launches that never got a turn
     r = rm.AgentRunner(Config({"browser": {"backend": "playwright"}}), EventBus(), mem)
     assert "compare Apple and Bloomberg roles" in r._system_prompt()
+
+
+class _FakeStream:
+    def __init__(self, pieces): self.pieces = pieces
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+    @property
+    def text_stream(self):
+        async def gen():
+            for p in self.pieces:
+                yield p
+        return gen()
+
+
+def _quick_chat_mode(tmp_path, pieces, spoken):
+    from voicectl.core.config import Config
+    from voicectl.core.events import EventBus
+    from voicectl.core.memory import Memory
+    from voicectl.modes.base import ModeContext
+    from voicectl.modes.prometheus import PrometheusMode
+    from voicectl.agents import runner as rm
+
+    class Spk:
+        active = False
+        first_audio_at = 0.0
+        async def speak_many(self, chunks, clean=True, show=False):
+            async for c in chunks: spoken.append(c)
+        def stop(self): pass
+        def wake(self): pass
+    ctx = ModeContext(Config({"agent": {"fast_chat": True}, "tts": {"enabled": True}, "browser": {"backend": "playwright"}}), EventBus())
+    ctx.speaker = Spk()
+    m = PrometheusMode(ctx)
+    runner = rm.AgentRunner(ctx.config, ctx.bus, Memory(tmp_path / "m.db"))
+    ctx.shared["agent_runner"] = runner
+    m._runner = lambda: runner
+    class Client:
+        class messages:
+            @staticmethod
+            def stream(**kw):
+                Client.kw = kw
+                if isinstance(pieces, Exception): raise pieces
+                return _FakeStream(pieces)
+    m._anthropic = lambda: Client
+    m.history = [{"role": "user", "content": "how are you"}]
+    return m, runner, Client
+
+
+async def test_plain_chat_is_answered_quickly_by_the_small_model_without_the_agent(tmp_path):
+    spoken = []
+    m, runner, client = _quick_chat_mode(tmp_path, ["I'm doing great. ", "How can I help?"], spoken)
+    out = await m._fast_chat("how are you")
+    assert out == "I'm doing great. How can I help?" and spoken and client.kw["model"] == "claude-haiku-4-5"
+    assert any("Quick chat" in n for n in m._side_notes)                       # the agent is told what was said, so context continues
+    assert runner.memory.recent_turns(1) == [("how are you", "I'm doing great. How can I help?")]
+
+
+async def test_quick_chat_hands_over_to_the_agent_without_saying_anything_when_tools_are_needed(tmp_path):
+    for pieces in (["NEEDS_AGENT"], ["NEEDS", "_AGENT"], ["needs_agent"]):
+        spoken = []
+        m, *_ = _quick_chat_mode(tmp_path, pieces, spoken)
+        assert await m._fast_chat("what is on my calendar") is None and spoken == []         # nothing was spoken: the agent answers cleanly
+    spoken = []
+    m, *_ = _quick_chat_mode(tmp_path, ["Never spoken"], spoken)
+    for text in ["open linkedin", "scroll down on this page", "can you play a song", "check my screen", "send an email to bob"]:
+        assert await m._fast_chat(text) is None, text                                           # obvious tool requests never reach the small model
+    assert spoken == []
+
+
+async def test_quick_chat_failure_falls_back_to_the_agent(tmp_path):
+    spoken = []
+    m, *_ = _quick_chat_mode(tmp_path, RuntimeError("api down"), spoken)
+    assert await m._fast_chat("how are you") is None and spoken == []
+    m.ctx.config.raw["agent"]["fast_chat"] = False
+    m2, *_ = _quick_chat_mode(tmp_path, ["hi"], [])
+    m2.ctx.config.raw["agent"]["fast_chat"] = False
+    assert await m2._fast_chat("how are you") is None                                           # the switch turns it off

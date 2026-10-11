@@ -225,6 +225,44 @@ While media plays, the assistant keeps listening but acts only on utterances tha
 - **Local data:** memory database, voice cache, traces and logs stay under the app's data folder and are git-ignored.
 - **Permissions requested:** Microphone, Accessibility and Input Monitoring (hotkeys, mouse/keyboard control, paste), Screen Recording (screenshots).
 
+## Speed: three ways a request is answered
+
+```mermaid
+flowchart TD
+    U[You speak] --> T[Speech to text]
+    T --> I{Small unambiguous<br/>browser command?}
+    I -- yes --> B[Run on the browser directly<br/>about 0.3 s, no model]
+    I -- no --> C{Plain chat, no tools needed?}
+    C -- yes --> H[Small fast model, no tools<br/>first words in about 1 s]
+    C -- no --> A[Full agent with tools]
+    H -- says NEEDS_AGENT or fails --> A
+    B -- no page, no tab control or error --> A
+```
+
+- **Instant path** (`modes/instant.py`): whole-utterance patterns only ("scroll down", "go back", "pause", "new tab", "switch to my LinkedIn tab", "search YouTube for ..."). Any mismatch or error hands the request to the agent.
+- **Quick chat**: only for requests classified as plain conversation, never for anything that mentions the browser, files or an action word. The small model may answer with a single hand-off word; nothing has been spoken yet, so the agent then answers cleanly. What it said is recorded for the agent and for memory.
+- **Every turn is timed.** One log line per turn, and a waterfall in Phoenix (speech to text, routing, agent start, model first token, every tool call, first sound). Each conversation has a **session id** that is its start time in epoch seconds, so all of its traces group under one session in Phoenix and map to a clock time.
+
+## Failure modes: designing against brittleness
+
+Every optimisation has a slower, safer path behind it, and a switch to turn it off.
+
+| If this fails or is missing | What happens | Switch |
+|---|---|---|
+| Instant command doesn't match, no page open, tab control missing, any error | The agent handles the request | `agent.instant_browser` |
+| Quick-chat model unavailable or says it needs tools | The agent answers | `agent.fast_chat` |
+| Agent gives no sign of life for 40 s | Its thread is dropped and the request retried once on a clean one | `agent.first_response_timeout_s` |
+| A one-step request keeps calling tools | It is stopped (6 calls; 40 for longer jobs) | `agent.single_step_tool_cap` |
+| An element click fails | Retried on a freshly read page, then the real mouse is suggested | |
+| Default microphone changes or goes stale | The stream is reopened, the audio system refreshed, a device that refuses 16 kHz is converted | |
+| The app restarts | A clean agent thread plus a compact recap, never the full old thread | `agent.resume_after_restart` |
+| Tracing, timing or telemetry fails | Swallowed: a turn never fails because of observability | `telemetry.enabled` |
+| Chrome DevTools connection unavailable | Falls back to the AppleScript, then Playwright backends | `browser.backend` |
+| Speech-to-text API unreachable or out of credit | Switch to the local engine with one setting | `stt.backend` |
+| Memory extraction (Anthropic) unavailable | Skipped and retried next hour | |
+
+Standing rule for changes to this project: check the architecture each time and keep it from becoming brittle. Before shipping, ask what happens if a dependency is missing, whether there is a safe fallback and an off switch, and whether the failure path has a test.
+
 ## Observability
 
 OpenTelemetry spans around each mode and turn go to a local Phoenix instance (`uv tool run ... phoenix serve`). Per-turn latency (speech end → text → first audio) and cost are logged and shown.

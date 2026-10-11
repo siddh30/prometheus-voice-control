@@ -15,12 +15,20 @@ from voicectl.agents.shared import runner_for
 from voicectl.core.wake import find_wake
 from voicectl.modes.base import ModeContext, modes
 from voicectl.modes.conversation import ConversationMode, sentences
+from voicectl.core.config import ROOT
+from voicectl.modes.instant import match_instant, run_instant
 from voicectl.modes.router import STOP, JevDecider, fast_route, normalize, parse_yes_no
 from voicectl.tts.speaker import clean_for_speech, strip_emoji
 
 log = logging.getLogger("voicectl.prometheus")
 
 # An audio request: the user asked for something to be played/listened to. Only then may we go into quiet, name-only listening.
+# Requests that obviously need the agent's tools: never answered by the quick chat path.
+NEEDS_TOOLS = re.compile(
+    r"^(?:please\s+|can you\s+|could you\s+|go ahead and\s+)?(?:open|go|click|scroll|play|search|find|look|type|press|close|switch|send|email|book|buy|"
+    r"download|show|check|read|write|create|delete|run|start|stop|set|turn|take|save|add|remove|upload|fill|submit|apply|navigate|visit|watch|pause|"
+    r"mute|call|text|message|post|share|compare|summari[sz]e|list|get|fetch|bring|make|build|fix|install|update|launch|quit|continue|resume|do|try|use)\b"
+    r"|\b(?:tab|page|screen|browser|chrome|website|site|file|folder|resume|linkedin|youtube|gmail|google|link|button|download|screenshot|mouse|click|scroll)\b", re.I)
 AUDIO_INTENT = re.compile(
     r"\b(play|put on|queue(?: up)?|listen to|stream|shuffle|turn on (?:some )?music)\b"
     r"|\b(song|songs|music|playlist|podcast|album|track|radio|soundtrack|audiobook|mixtape|karaoke)\b"
@@ -324,6 +332,10 @@ class PrometheusMode(ConversationMode):
 
     # ---- one utterance ----
     async def respond(self, text: str) -> str:
+        # Small unambiguous browser commands ("scroll down", "go back", "pause", "switch to my linkedin tab") skip the model entirely.
+        if self.ctx.config.get("agent.instant_browser", True) and (cmd := match_instant(text)) is not None:
+            if (done := await self._instant_browser(cmd, text)) is not None:
+                return done
         # Exact one-step commands ("open Safari", "volume 30") don't need the model: instant.
         fast = fast_route(text)
         if fast is not None and fast.kind == "action":
@@ -338,7 +350,38 @@ class PrometheusMode(ConversationMode):
             if instant is not None:
                 log.info("instant action via Jev: %s %s (%.2f)", instant.action.name, instant.args, instant.confidence or 0)
                 return await self._quick_action(instant)
-        return await self._agent_turn(text, self._complexity(text, read))
+        complexity = self._complexity(text, read)
+        if complexity.level == "none" and (chat := await self._fast_chat(text)) is not None:
+            return chat
+        return await self._agent_turn(text, complexity)
+
+    async def _instant_browser(self, cmd, text: str) -> str | None:
+        """Run an instant browser command. Any problem (no page, no tab control, an error) returns None, and the agent handles it."""
+        browser = getattr(self._runner(), "browser", None)
+        tl = getattr(self, "_tl", None)
+        if browser is None:
+            return None
+        try:
+            await run_instant(cmd, browser)
+            message, ok = cmd.spoken, True
+        except Exception as e:
+            note = str(e)
+            if "already at" in note or "didn't move" in note:      # scrolling reached the end: that is an answer, not a failure
+                message, ok = ("That's the bottom." if "bottom" in note else "That's the top." if "top" in note else "That's as far as it goes."), True
+            else:
+                log.info("instant %s failed (%s); handing it to the agent", cmd.kind, note[:100])
+                return None
+        if tl:
+            tl.kind = "instant"
+            tl.mark("routed")
+        bus = self.ctx.bus
+        bus.publish("state", state="acting", mode=self.name)
+        bus.publish("step", text=cmd.spoken.rstrip("."), done=ok)
+        bus.publish("result", text=message)
+        self._side_notes.append(f"Prometheus did (instantly, no model): {message}")
+        if self.ctx.config.get("assistant.confirm_actions", "short") != "silent" and self.ctx.speaker and self.ctx.config.get("tts.enabled", True):
+            await self.ctx.speaker.speak(message)
+        return message
 
     async def _jev_read(self, text: str):
         if not self.jev:
@@ -380,6 +423,63 @@ class PrometheusMode(ConversationMode):
             await self.ctx.speaker.speak(result.spoken or clean_for_speech(result.message, 120))
         return result.message
 
+    async def _fast_chat(self, text: str) -> str | None:
+        """Answer plain chat with a small, fast model and no tools (first words in about a second instead of three to seven).
+        Returns None, having said nothing, if it isn't plain chat or anything goes wrong: the agent then answers as usual."""
+        cfg = self.ctx.config
+        if not cfg.get("agent.fast_chat", True) or len(text.split()) > 30 or NEEDS_TOOLS.search(text.strip()):
+            return None
+        tl = getattr(self, "_tl", None)
+        voice, reply, head = _Voice(self.ctx), "", ""
+        try:
+            runner = self._runner()
+            facts = "\n".join(f"- {k}: {v}" for k, v in runner.memory.facts().items())
+            recap = runner._recap()
+            notes = "\n".join(self._side_notes[-5:])
+            system = (ROOT / "prompts" / "prometheus_chat_prompt.txt").read_text()
+            system += (f"\n\nWhat you know about the user:\n{facts}" if facts else "") + (f"\n\nEarlier conversation:\n{recap}" if recap else "") \
+                + (f"\n\nJust done on the computer:\n{notes}" if notes else "") + (f"\n\n{runner.status()}" if runner.status() else "")
+            messages = [{"role": m["role"], "content": m["content"]} for m in self.history[-8:] if m.get("content")]
+            async with self._anthropic().messages.stream(model=cfg.get("agent.fast_model", "claude-haiku-4-5"), max_tokens=300,
+                                                         system=system, messages=messages) as stream:
+                started = False
+                async for piece in stream.text_stream:
+                    reply += piece
+                    if not started:
+                        head += piece
+                        if "NEEDS_AGENT".startswith(head.strip().upper()[:11]) and len(head.strip()) < 11:
+                            continue                                     # could still turn out to be the hand-off word: wait for more
+                        if head.strip().upper().startswith("NEEDS_AGENT"):
+                            voice.cancel()
+                            return None
+                        started = True
+                        if tl:
+                            tl.kind = "chat"
+                            tl.mark("routed"); tl.mark("first_token")
+                        voice.start(1)
+                        voice.delta(1, strip_emoji(head))
+                    else:
+                        voice.delta(1, strip_emoji(piece))
+            if not started:                                              # very short reply that never left the buffer
+                if head.strip().upper().startswith("NEEDS_AGENT") or not head.strip():
+                    voice.cancel()
+                    return None
+                voice.start(1); voice.delta(1, strip_emoji(head))
+            voice.end(1)
+            await voice.drain()
+        except asyncio.CancelledError:
+            voice.cancel()
+            raise
+        except Exception as e:                                          # no key, no network, API error: the agent takes over
+            voice.cancel()
+            log.info("quick chat unavailable (%s: %s); using the agent", type(e).__name__, str(e)[:80])
+            return None
+        reply = reply.strip()
+        self.ctx.bus.publish("result", text=strip_emoji(reply))
+        self._side_notes.append(f"Quick chat (no tools): user said {text!r}; Prometheus answered {reply[:200]!r}")
+        runner.memory.log_turn(runner._session_row or 0, text, reply)    # the recap and long-term memory still see it
+        return reply
+
     async def _agent_turn(self, text: str, complexity: Complexity | None = None) -> str:
         runner = self._runner()
         voice, final = _Voice(self.ctx), ""
@@ -387,10 +487,16 @@ class PrometheusMode(ConversationMode):
         try:
             c = complexity or heuristic(text)
             log.info("task complexity: %s (%s)", c.level, c.source)
+            tl = getattr(self, "_tl", None)
+            runner.timeline = tl
+            if tl:
+                tl.mark("routed")
             async for ev in runner.stream_turn(text, context, hint_block(c), c.level, publish_result=False):
                 if isinstance(ev, TextStart):
                     voice.start(ev.id)
                 elif isinstance(ev, TextDelta):
+                    if tl:
+                        tl.mark("first_token")
                     voice.delta(ev.id, ev.text)
                 elif isinstance(ev, TextEnd):
                     voice.end(ev.id)

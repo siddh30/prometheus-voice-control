@@ -30,3 +30,28 @@ def setup(config: Config) -> bool:
     global tracer
     tracer = trace.get_tracer("voicectl")
     return True
+
+
+def new_session_id() -> str:
+    """A session id that IS its start time: epoch seconds, e.g. 1760198400 = 2026-10-11 12:00:00 UTC. All traces of one conversation share it."""
+    import time
+    return str(int(time.time()))
+
+
+def session_label(session_id: str) -> str:
+    import datetime
+    try:
+        return datetime.datetime.fromtimestamp(int(session_id)).strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError):
+        return ""
+
+
+def session_context(session_id: str):
+    """Everything traced inside this `with` (including the Claude Agent SDK's own spans) is tagged `session.id`, so Phoenix groups
+    the whole conversation under one session. A no-op if the helper isn't installed: tracing must never break a turn."""
+    import contextlib
+    try:
+        from openinference.instrumentation import using_session
+        return using_session(session_id)
+    except Exception:
+        return contextlib.nullcontext()
