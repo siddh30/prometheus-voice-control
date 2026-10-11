@@ -27,3 +27,6 @@ overlay/.build/
 .DS_Store
 .claude/settings.local.json
 *.egg-info/
+
+# tool output
+graphify-out/
