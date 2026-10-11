@@ -294,3 +294,25 @@ def test_forgetting_what_was_learned_is_a_voice_command_of_its_own():
         assert FORGET_LEARNED.match(t), t
     for t in ["forget everything", "start fresh", "forget it", "what have you learned"]:
         assert not FORGET_LEARNED.match(t), t
+
+
+def test_memory_is_one_shared_instance_and_new_conversation_clears_only_the_turns(tmp_path, monkeypatch):
+    from voicectl.core import memory as mem
+    monkeypatch.setattr("voicectl.core.config.DATA_DIR", tmp_path)
+    shared = {}
+    a, b = mem.shared_memory(shared), mem.shared_memory(shared)
+    assert a is b                                                   # one connection for the whole daemon
+    row = a.new_session()
+    a.log_turn(row, "hi", "hello")
+    a.remember("role", "PM")
+    a.set_meta("extracted_turn_id", "5")
+    assert a.newest_turn_id() >= 1
+    a.clear_turns()
+    assert a.newest_turn_id() == 0 and a.facts() == {"role": "PM"} and a.get_meta("extracted_turn_id") == "0"
+
+
+def test_only_the_memory_stores_touch_the_database():
+    import pathlib, re
+    offenders = [str(p) for p in pathlib.Path("src/voicectl").rglob("*.py")
+                 if p.name not in ("memory.py", "learnings.py") and re.search(r"\bsqlite3\b|\.db\.(execute|commit|executescript)", p.read_text())]
+    assert not offenders, f"use the Memory / LearningStore methods instead: {offenders}"

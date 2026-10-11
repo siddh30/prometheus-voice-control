@@ -126,6 +126,23 @@ class Memory:
     def facts(self) -> dict[str, str]:
         return dict(self.db.execute("SELECT key, value FROM facts ORDER BY key").fetchall())
 
+    def newest_turn_id(self) -> int:
+        return self.db.execute("SELECT COALESCE(MAX(id), 0) FROM turns").fetchone()[0]
+
+    def clear_turns(self) -> None:
+        """Forget the conversation itself (facts and sessions stay); the learning cursor restarts with it."""
+        self.db.execute("DELETE FROM turns")
+        self.set_meta("extracted_turn_id", "0")
+        self.db.commit()
+
     def clear(self) -> None:
         self.db.executescript("DELETE FROM sessions; DELETE FROM facts; DELETE FROM turns; DELETE FROM meta;")
         self.db.commit()
+
+
+def shared_memory(shared: dict) -> Memory:
+    """The daemon's one memory: every part that needs it asks here instead of opening its own connection."""
+    if "memory" not in shared:
+        from voicectl.core.config import DATA_DIR
+        shared["memory"] = Memory(DATA_DIR / "voicectl.db")
+    return shared["memory"]

@@ -8,11 +8,10 @@ import re
 import time
 from collections.abc import AsyncIterator
 
-from voicectl.core.config import DATA_DIR
 from voicectl import llm
 from voicectl.channels import TextChannel, VoiceChannel
 from voicectl.core.ears import Utterance
-from voicectl.core.memory import Memory
+from voicectl.core.memory import shared_memory
 from voicectl.core.timeline import TurnTimeline
 from voicectl.telemetry import phoenix as tel
 from voicectl.modes.base import Mode, ModeContext, modes
@@ -459,7 +458,7 @@ class ConversationMode(Mode):
         return f"\nAgent status (for progress questions): {status}\n" if status else ""
 
     async def _tokens(self) -> AsyncIterator[str]:
-        facts = Memory(DATA_DIR / "voicectl.db").facts()
+        facts = shared_memory(self.ctx.shared).facts()
         facts_txt = ("\nWhat you know about the user:\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items())) if facts else ""
         async for t in llm.current().stream(
             model=self.ctx.config.get("conversation.model", "claude-sonnet-4-6"),

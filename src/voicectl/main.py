@@ -4,10 +4,10 @@ import asyncio
 import logging
 import os
 
-from voicectl.core.config import DATA_DIR, load_config
+from voicectl.core.config import load_config
 from voicectl.core.events import EventBus
 from voicectl.core.maintenance import Maintenance
-from voicectl.core.memory import Memory
+from voicectl.core.memory import shared_memory
 from voicectl.core.session import SessionManager, State
 from voicectl.core.wake import WakeListener
 from voicectl.api import Control
@@ -58,7 +58,7 @@ async def run() -> None:
         asyncio.create_task(mode_objs[primary]._runner().warm_up())      # start the agent + browser bridge now, not on your first request
 
     # Hourly memory hygiene: only when idle (see core/maintenance.py). Also on demand: "clean your memory", or the Dock menu.
-    maint = Maintenance(config, bus, Memory(DATA_DIR / "voicectl.db"), lambda: session.state is State.IDLE,
+    maint = Maintenance(config, bus, shared_memory(ctx.shared), lambda: session.state is State.IDLE,
                         lambda: ctx.shared.get("agent_runner"))
     ctx.shared["maintenance"] = maint
     if os.environ.get("VOICECTL_HOTKEYS") == "app":          # the app relaunches the daemon, so a self-restart is safe

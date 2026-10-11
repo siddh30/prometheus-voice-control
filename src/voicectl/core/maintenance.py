@@ -97,7 +97,7 @@ class Maintenance:
         old turns are pruned or deleted, so what mattered outlives the conversation that produced it. Never learns from raw speech
         alone: the log pairs each request with the answer and the steps that did or did not work."""
         cursor = int(self.memory.get_meta("extracted_turn_id", "0") or 0)
-        newest = self.memory.db.execute("SELECT COALESCE(MAX(id), 0) FROM turns").fetchone()[0]
+        newest = self.memory.newest_turn_id()
         if cursor > newest:                                    # every turn was pruned and numbering restarted
             cursor = 0
         turns = self.memory.turns_after(cursor)
@@ -145,9 +145,7 @@ class Maintenance:
                 log.warning("couldn't close the agent session cleanly", exc_info=True)
         await self.learn_from_recent(min_turns=1)             # keep what was learned; only the conversation itself is dropped
         self.memory.forget("session_digest")
-        self.memory.db.execute("DELETE FROM turns")
-        self.memory.set_meta("extracted_turn_id", "0")
-        self.memory.db.commit()
+        self.memory.clear_turns()
         forget_hook()
         self.bus.publish("session", label="")
         self.bus.publish("notice", text="New conversation. Clean slate; I still know your preferences.")
