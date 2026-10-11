@@ -47,6 +47,18 @@ class Mic:
         frames = self._frames
         return frames[index:], len(frames)
 
+    def blocks_from(self, sample_index: int) -> tuple[list[np.ndarray], int]:
+        """Audio recorded since absolute sample `sample_index`, and the next index to ask from. Unlike blocks_since() this stays correct
+        while old audio is trimmed, so a listener can run for hours on one open stream with no gap."""
+        with self._lock:
+            out, pos = [], self._dropped
+            for b in self._frames:
+                end = pos + len(b)
+                if end > sample_index:
+                    out.append(b if pos >= sample_index else b[sample_index - pos:])
+                pos = end
+            return out, pos
+
     @property
     def total_samples(self) -> int:
         return self._total

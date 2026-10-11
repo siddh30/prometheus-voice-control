@@ -37,13 +37,20 @@ class FakeMic:
     def __init__(self, script):
         self.script, self.i, self.running = script, 0, False
 
-    def start(self): self.running, self.i = True, 0
+    def start(self): self.running, self.i = True, 0; type(self).starts += 1
     def stop(self): self.running = False; return np.zeros(0, "float32")
 
     def blocks_since(self, idx):
         # reveal the scripted audio gradually, like a live stream
         self.i = min(len(self.script), self.i + 6)
         return self.script[idx:self.i], self.i
+
+    def blocks_from(self, sample_index):
+        self.i = min(len(self.script), self.i + 6)
+        return self.script[sample_index // BLOCK:self.i], self.i * BLOCK
+
+    starts = 0
+    def trim_before(self, index): pass
 
 
 class FakeSTT:
@@ -98,3 +105,34 @@ def test_waking_by_name_gets_a_warm_varied_greeting_not_a_bare_yes():
     assert all(g in GREETINGS and g in PHRASES for g in seen)
     assert all(a != b for a, b in zip(seen, seen[1:])) and len(set(seen)) > 2
     assert not any(g.strip("?.!").lower() == "yes" for g in GREETINGS)
+
+
+async def test_the_wake_mic_stays_open_while_waiting_so_there_is_no_deaf_gap():
+    """Regression: the listener used to stop/start the mic every few seconds; speech starting in that gap was lost."""
+    FakeMic.starts = 0
+    script = [tone(0.002)] * 200 + [tone(0.25)] * 25 + [tone(0.002)] * 40            # 6+ s of quiet, then "Prometheus"
+    woke = []
+    w = WakeListener(Config({"wake_word": {"enabled": True, "word": "prometheus"}}), EventBus(), FakeMic(script), FakeSTT("Prometheus"),
+                     lambda: True, lambda rest, heard: woke.append(heard))
+    w.start()
+    for _ in range(160):
+        if woke:
+            break
+        await asyncio.sleep(0.05)
+    w.stop()
+    assert woke == ["Prometheus"] and FakeMic.starts == 1                            # one open stream the whole time
+
+
+def test_mic_reads_by_absolute_position_even_after_trimming():
+    import numpy as np
+    from voicectl.input.mic import Mic
+    m = Mic(16000)
+    for i in range(10):
+        m._frames.append(np.full(100, i, "float32")); m._total += 100
+    blocks, nxt = m.blocks_from(0)
+    assert len(blocks) == 10 and nxt == 1000
+    m.trim_before(500)                                                               # drops whole blocks before sample 500
+    blocks, nxt = m.blocks_from(700)
+    assert nxt == 1000 and int(blocks[0][0]) == 7 and len(blocks) == 3
+    blocks, nxt = m.blocks_from(1000)
+    assert blocks == [] and nxt == 1000

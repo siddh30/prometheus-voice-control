@@ -63,6 +63,8 @@ class WakeListener:
         self.word = config.get("wake_word.word", "prometheus").lower()
         self.enabled = bool(config.get("wake_word.enabled", True))
         self._threshold: float | None = None
+        self._pos = 0                                              # absolute sample index consumed so far
+        self._carry: list[np.ndarray] = []
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -88,6 +90,7 @@ class WakeListener:
                     continue
                 if not recording:
                     self.mic.start()
+                    self._pos, self._carry = 0, []
                     recording = True
                     self.bus.publish("wake", listening=True)
                 audio = await self._next_utterance()
@@ -96,6 +99,8 @@ class WakeListener:
                 text = await asyncio.to_thread(self.stt.transcribe, audio, self.mic.sample_rate, self.word.title())
                 found, rest = find_wake(text, self.word)
                 log.debug("wake check: %r -> %s", text, found)
+                if not found and 0 < len(text.split()) <= 4:           # a near miss ("Pro me the"): keep it, so a miss can be diagnosed
+                    log.info("wake word not matched, heard: %r", text)
                 if found:
                     self.mic.stop()          # hand the mic over before the assistant starts recording
                     recording = False
@@ -108,24 +113,38 @@ class WakeListener:
                 self.mic.stop()
 
     async def _next_utterance(self) -> np.ndarray | None:
-        """Block until one short spoken utterance has been captured (or ~3 s of quiet passes)."""
-        ep = Endpointer(self.mic.sample_rate, silence_s=0.6, min_speech_s=0.2, no_speech_s=3.0, max_s=6.0,
-                        threshold=self._threshold)
-        idx, verdict, blocks_all = 0, "continue", []
+        """Block until one short spoken utterance has been captured. The microphone stream stays open the whole time (reopening it
+        every few seconds left a deaf gap, and the first words you said right then were lost). Each window starts with the last
+        ~0.6 s of the previous one, so a word that begins as a window ends is not clipped."""
+        sr = self.mic.sample_rate
+        ep = Endpointer(sr, silence_s=0.6, min_speech_s=0.15, no_speech_s=2.5, max_s=6.0, warmup_s=0.0,
+                        min_threshold=0.008, threshold=self._threshold)
+        blocks_all = list(self._carry)
+        verdict = "continue"
+        for b in blocks_all:
+            ep.feed(b)
         while verdict == "continue":
             await asyncio.sleep(0.05)
             if not (self.enabled and self.is_idle()):
                 return None
-            new, idx = self.mic.blocks_since(idx)
+            new, self._pos = self.mic.blocks_from(self._pos)
             for b in new:
                 blocks_all.append(b)
                 verdict = ep.feed(b)
                 if verdict != "continue":
                     break
+            trim = getattr(self.mic, "trim_before", None)
+            if trim:
+                trim(max(0, self._pos - 2 * sr))                  # bounded memory: keep only the last couple of seconds
         if self._threshold is None:
-            self._threshold = ep.threshold            # keep the calibrated noise floor for later windows
-        # drop the buffered audio so memory doesn't grow; start a fresh stream window
-        self.mic.stop(); self.mic.start()
-        if verdict == "done" and ep.heard_speech:
+            self._threshold = ep.threshold                        # keep the calibrated noise floor for later windows
+        tail, keep = [], int(0.6 * sr)
+        for b in reversed(blocks_all):                            # what the next window starts with
+            tail.insert(0, b)
+            keep -= len(b)
+            if keep <= 0:
+                break
+        self._carry = [] if (verdict == "done" and ep.heard_speech) else tail
+        if ep.heard_speech and verdict in ("done", "timeout"):    # an utterance that ran to the length cap is still an utterance
             return np.concatenate(blocks_all)
         return None
