@@ -95,13 +95,14 @@ def build_swarm_tools(base: str, token: str, bus=None, max_wait_s: float = 300.0
                              f"with job {job['id']} for the rest.")
         return _text(f"Still running after {int(max_wait_s)} seconds (job {job['id']}). Tell the user, and check with swarm_status.")
 
-    @tool("swarm_run", "Send a task to one of the user's computers (computer = its name, e.g. 'Mac mini') or, with computer empty, let the swarm "
-                       "choose and split the work across computers that run IN PARALLEL. Use it when the user names another computer, asks for several, "
+    @tool("swarm_run", "Send a task to one or more of the user's computers (computer = a name like 'Mac mini', or several separated by commas) or, with "
+                       "computer empty, let the swarm choose and split the work across computers that run IN PARALLEL. Use it when the user names another computer, asks for several, "
                        "or the task belongs elsewhere. Returns as soon as the first computer finishes (the others keep working): report that "
                        "result at once, then call swarm_wait for the rest. The task must be self-contained.", {"task": str, "computer": str})
     async def run(args):
         async def go():
-            job = await call("POST", "/api/jobs", json={"text": args["task"], "computer": args.get("computer", "") or ""})
+            names = [n.strip() for n in str(args.get("computer", "") or "").split(",") if n.strip()]          # one name, or several separated by commas
+            job = await call("POST", "/api/jobs", json={"text": args["task"], "computers": names})
             return await follow(job, set())
         return await safely(go())
 

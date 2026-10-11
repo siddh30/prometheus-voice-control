@@ -17,7 +17,7 @@ struct DeviceMap: View {
             let w = geo.size.width, h = geo.size.height
             let me = CGPoint(x: devices.count == 1 ? w * 0.34 : w / 2, y: h * 0.42)
             let spots = layout(devices.count, w: w, h: h, me: me)
-            TimelineView(working.isEmpty ? AnimationTimelineSchedule(minimumInterval: 5) : AnimationTimelineSchedule(minimumInterval: 1.0 / 20.0)) { tl in
+            TimelineView(working.isEmpty ? AnimationTimelineSchedule(minimumInterval: 5, paused: UIMotion.calm) : UIMotion.schedule(12)) { tl in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 ZStack {
                     ForEach(Array(devices.enumerated()), id: \.element.id) { i, d in

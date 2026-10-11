@@ -199,13 +199,12 @@ Then:
 
 ## Prometheus Swarm: your computers working as one
 
-The same app on each of your Macs, connected. Every computer runs its own Prometheus and works fine on its own; the **Swarm / Single switch** in the widget (the three-dots button, or say "swarm mode" / "single mode") decides where your request goes:
+The same app on each of your Macs, connected. Every computer runs its own Prometheus and works fine on its own; the **Swarm / Single switch** in the widget (the three-dots button, or say "swarm mode" / "single mode") adds your other computers to the one you are using:
 
-- **Single:** just this computer, exactly as before.
-- **Swarm:** what you say or type goes **straight to the agents on your computers** (no waiting for this computer's assistant to think first). The widget shows a map of your computers with live progress, and you get **one spoken answer** at the end. The same wake word, F9/F10 and microphone: there is only one voice in and one voice out.
-  - **Auto:** with nothing picked, the swarm decides who does what (or splits the work and runs the parts in parallel).
-  - **Manual:** tap one or more computers on the map to send the request only there; tap *AUTO* to go back. Only computers that are online can be picked. Naming one in your request ("on the mini, ...") works too.
-- Each computer acts as a **sub-agent**: it runs the task in a private session with no voice and no microphone, so it never interrupts you, and your own Prometheus there keeps working independently.
+- **Swarm works exactly like the app you know, with other computers available.** The same assistant: it converses, narrates, shows its plan, speaks, can be interrupted. It simply also has your other computers and uses them when work belongs there or can run in parallel, saying each result as it comes in. Single mode is the same app with only this computer.
+- **F10 is agent mode** (the violet SWARM look): talk once; with nothing picked, the assistant decides what to do here and what to send elsewhere. **F9 is manual** (the MANUAL tag): speak, it transcribes, and then *you choose where it goes*: tap a computer, *Auto*, *Type here* (like plain dictation) or *Cancel*. Choosing a computer starts agent mode on it.
+- **Pick the computers yourself:** tap one or more on the map to send requests only there; tap *AUTO* to go back. Only computers that are online can be picked. Naming one in your request ("on the mini, ...") works too.
+- Each computer acts as a **sub-agent** for the swarm: it runs the task in a private session with no voice and no microphone, so it never interrupts you, and your own Prometheus there keeps working independently.
 - **A phone** opens the same swarm in its browser (nothing to install), or calls the API below.
 
 1. **Pick one computer to be the hub** (the one you'll sit at, or an always-on one). In a new file `config.local.yaml` (git-ignored, this computer's own settings): `swarm: {enabled: true, hub: true, name: "Mac mini", description: "Mac mini: always on, has my files"}`.

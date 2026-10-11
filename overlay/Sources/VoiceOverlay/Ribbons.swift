@@ -7,7 +7,7 @@ struct Ribbons: View {
     let phase: Phase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: phase == .listening ? 1.0 / 30.0 : 1.0 / 12.0)) { tl in   // full speed only while it follows your voice
+        TimelineView(UIMotion.schedule(phase == .listening || phase == .transcribing ? 24 : 8)) { tl in     // fast only while it follows your voice
             Canvas { ctx, size in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 let w = size.width, h = size.height, mid = h / 2

@@ -110,6 +110,8 @@ async def run() -> None:
                 mode_objs[primary].set_swarm_mode(bool(ev.data.get("on")) and bool(config.get("swarm.enabled", False)))
             elif ev.data.get("command") == "swarm_target":
                 mode_objs[primary].set_swarm_targets(list(ev.data.get("computers", [])))
+            elif ev.data.get("command") == "swarm_dispatch":              # F9 (manual): the user chose where the transcribed request goes
+                await mode_objs[primary].dispatch_manual(session, str(ev.data.get("text", "")), str(ev.data.get("computer", "")))
     swarm_ui_task = asyncio.create_task(ui_swarm())
 
     async def ui_voice() -> None:

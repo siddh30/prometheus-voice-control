@@ -430,10 +430,52 @@ class PrometheusMode(ConversationMode):
             await self.ctx.speaker.speak_many(one(), show=True)                              # the one final answer
         return result
 
+    async def dispatch_manual(self, session, text: str, where: str) -> None:
+        """F9 in Swarm mode: the words are transcribed and the user chose where they go. A computer (or Auto) hands the request to the assistant, which
+        works on it there (agent mode starts); "__here__" types it at the cursor like plain dictation; "__cancel__" drops it."""
+        text = text.strip()
+        if not text or where == "__cancel__":
+            return
+        if where == "__here__":
+            self.ctx.bus.publish("paste", text=text)
+            return
+        self.set_swarm_targets([] if where in ("", "__auto__") else [where])
+        if session.conversation_active():
+            await self.submit_text(text)
+        else:
+            session.wake(self.name, text)
+
+    async def _swarm_hint(self) -> str:
+        """What the assistant is told in Swarm mode: which other computers are online, and whether the user picked some. It stays the same
+        assistant (it converses, narrates, plans, speaks, can be interrupted); this only tells it that it has company."""
+        from voicectl.swarm.client import HubClient
+        from voicectl.swarm.tools import api_base
+        from voicectl.swarm.wiring import swarm_token
+        try:
+            rows = await HubClient(api_base(self.ctx.config), swarm_token(), "voice").call("GET", "/api/computers", timeout=2)
+        except Exception:
+            return "\n<SwarmMode>Swarm mode is on, but the swarm can't be reached right now: do the work on this computer.</SwarmMode>"
+        here = (self.ctx.config.get("swarm.name", "") or "").strip().lower()
+        others = [f"{r['name']} ({r['status']})" for r in rows if r.get("online", True) and r["name"].lower() != here]
+        picked = list(self.ctx.shared.get("swarm_targets") or [])
+        if not others:
+            return "\n<SwarmMode>Swarm mode is on, but no other computer is online right now: do the work on this computer.</SwarmMode>"
+        if picked:
+            return (f"\n<SwarmMode>Swarm mode is on. The user picked these computers for this request: {', '.join(picked)}. Send the work there with "
+                    f"swarm_run(computer=\"{', '.join(picked)}\") and report results as they arrive; do not do it on this computer.</SwarmMode>")
+        return (f"\n<SwarmMode>Swarm mode is on. Besides this computer you can use: {', '.join(others)}. They run in parallel. Do small things here; "
+                f"send work that belongs on another computer, or that splits into parts, with swarm_run (say each result as it arrives), "
+                f"otherwise just do it as usual.</SwarmMode>")
+
     # ---- one utterance ----
     async def respond(self, text: str) -> str:
-        if self.swarm_on() and (done := await self._swarm_turn(text)) is not None:
-            return done
+        if self.swarm_on():
+            if self.ctx.config.get("swarm.direct", False):             # optional: skip the assistant and hand the request straight to the hub
+                if (done := await self._swarm_turn(text)) is not None:
+                    return done
+            elif self.ctx.shared.get("swarm_targets"):                 # computers picked by hand: the assistant itself sends the work there
+                return await self._agent_turn(text, heuristic(text))
+        # Swarm mode otherwise works exactly like single: the same assistant, plus your other computers available to it (see _swarm_hint).
         # Small unambiguous browser commands ("scroll down", "go back", "pause", "switch to my linkedin tab") skip the model entirely.
         if self.ctx.config.get("agent.instant_browser", True) and (cmd := match_instant(text)) is not None:
             if (done := await self._instant_browser(cmd, text)) is not None:
@@ -593,7 +635,8 @@ class PrometheusMode(ConversationMode):
             runner.timeline = tl
             if tl:
                 tl.mark("routed")
-            async for ev in runner.stream_turn(text, context, hint_block(c), c.level, publish_result=False):
+            hints = hint_block(c) + (await self._swarm_hint() if self.swarm_on() else "")
+            async for ev in runner.stream_turn(text, context, hints, c.level, publish_result=False):
                 if isinstance(ev, TextStart):
                     voice.start(ev.id)
                 elif isinstance(ev, TextDelta):

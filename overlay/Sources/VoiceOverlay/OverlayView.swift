@@ -49,12 +49,21 @@ struct OverlayView: View {
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(Capsule().fill(.white.opacity(0.07)).overlay(Capsule().stroke(.white.opacity(0.10), lineWidth: 0.5)))
 
-            if model.swarmMode && model.isActive { SwarmPanel(swarm: model.swarm).transition(.opacity) }
+            // Which key does what, in words: F9 types where your cursor is; F10 talks to the assistant (and in Swarm mode, to all your computers).
+            if model.phase == .listening || model.phase == .transcribing {
+                Text(model.mode == "dictate" ? (model.swarmMode ? "F9 · manual: speak, then choose where it goes" : "F9 · dictating: your words are typed where your cursor is")
+                     : model.swarmActive ? "F10 · swarm: say it once and it goes to your computers" : "")
+                    .font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.45))
+            }
+
+            if !model.manualText.isEmpty { ManualChoice(model: model).transition(.opacity) }
+
+            if model.swarmActive && model.isActive { SwarmPanel(swarm: model.swarm).transition(.opacity) }
 
             if model.typing { TypeBox(model: model).transition(.opacity) }
 
             // In Swarm mode the swarm card already shows the request and each computer's answer: one text area, not three.
-            let swarmCard = model.swarmMode && model.swarm.latestJob != nil && model.isActive
+            let swarmCard = model.swarmActive && model.swarm.latestJob != nil && model.isActive
             if !model.transcript.isEmpty && !swarmCard {
                 CaptionView(text: "“\(model.transcript)”").transition(.opacity)
             }
@@ -366,5 +375,35 @@ struct SwarmPanel: View {
                 Text("+\(swarm.moreRunning) more running").font(.system(size: 10, weight: .semibold, design: .rounded)).foregroundStyle(accent.opacity(0.8))
             }
         }
+    }
+}
+
+
+/// F9 in Swarm mode: you said something; now you choose where it goes. Picking a computer starts the assistant (agent mode) on it.
+struct ManualChoice: View {
+    @ObservedObject var model: OverlayModel
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("“\(model.manualText)”").font(.system(size: 13, design: .rounded)).foregroundStyle(.white.opacity(0.92))
+                .multilineTextAlignment(.center).lineLimit(4).frame(maxWidth: 380)
+            Text("SEND IT TO").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6).foregroundStyle(.white.opacity(0.45))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+                ForEach(model.swarm.devices.filter { $0.online }) { d in
+                    chip(d.name, systemImage: d.name.lowercased().contains("mini") ? "desktopcomputer" : "laptopcomputer", strong: true) { model.dispatchManual(d.name) }
+                }
+                chip("Auto", systemImage: "point.3.connected.trianglepath.dotted", strong: true) { model.dispatchManual("__auto__") }
+                chip("Type here", systemImage: "keyboard", strong: false) { model.dispatchManual("__here__") }
+                chip("Cancel", systemImage: "xmark", strong: false) { model.dispatchManual("__cancel__") }
+            }
+        }
+        .frame(maxWidth: 400)
+    }
+    private func chip(_ title: String, systemImage: String, strong: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage).font(.system(size: 11, weight: .semibold, design: .rounded)).lineLimit(1).fixedSize()
+                .foregroundStyle(strong ? Color.white : Color.white.opacity(0.75))
+                .padding(.horizontal, 12).padding(.vertical, 7).frame(maxWidth: .infinity)
+                .background(Capsule().fill(strong ? accent.opacity(0.75) : Color.white.opacity(0.10)))
+        }.buttonStyle(.plain)
     }
 }

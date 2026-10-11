@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var typingWatch: AnyCancellable?
     var bag = Set<AnyCancellable>()
     var swarmSocket: SwarmSocket?
+    var recordingWatch: AnyCancellable?
     var swarmWatch: Timer?
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -48,17 +49,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = ProcessInfo.processInfo.environment["VOICECTL_WS"] ?? "ws://127.0.0.1:8765"
         socket = DaemonSocket(url: URL(string: host)!, model: model)
         hotkeys.send = { [weak self] msg in self?.socket.send(msg) }
-        hotkeys.isRecording = { MainActor.assumeIsolated { [weak self] in
-            guard let m = self?.model else { return false }
-            // Esc is ours while recording, and for the whole span of a hands-free conversation
-            if m.conversational { return m.phase != .idle && m.phase != .done }
-            return m.phase == .listening
-        } }
         hotkeys.onTrust = { [weak self] ok in MainActor.assumeIsolated { self?.model.needsPermission = !ok } }
         socket.onConfig = { [weak self] keys, cancel in self?.hotkeys.configure(hotkeys: keys, cancel: cancel) }
         hotkeys.start()
         model.linkSwarm()
         startSwarmLink()
+        // Esc belongs to us only while a recording or conversation is active; the keyboard hook (its own thread) reads this flag, never the UI.
+        func syncRecordingFlag() {
+            let on = model.conversational ? (model.phase != .idle && model.phase != .done) : model.phase == .listening
+            hotkeys.setRecording(on)
+        }
+        recordingWatch = model.$phase.combineLatest(model.$mode).receive(on: RunLoop.main).sink { _ in syncRecordingFlag() }
         // Dock icon badge: you can see "REC" even when the widget is hidden behind a full-screen app.
         badgeWatch = model.$phase.receive(on: RunLoop.main).sink { phase in
             switch phase {
@@ -70,8 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hosting = NSHostingView(rootView: OverlayView(model: model, onSize: { [weak self] size in
-            DispatchQueue.main.async { self?.place(size: size) }
+            DispatchQueue.main.async { self?.sizeSettled(size) }
         }))
+        // The app sizes the window itself (place(size:)). Left to SwiftUI, the hosting view re-negotiates the window's size limits with the
+        // window server on every animation frame, which blocks this app for half of its time and stalls the whole desktop while it animates.
+        if #available(macOS 13.0, *) { hosting.sizingOptions = [] }
         panel = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.contentView = hosting
@@ -112,6 +116,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if d.object(forKey: "anchorX") != nil {
             anchorX = d.double(forKey: "anchorX"); anchorY = d.double(forKey: "anchorY"); growsDown = d.bool(forKey: "growsDown")
         } else { defaultAnchor() }
+    }
+
+    private var pendingSize: CGSize?
+    private var sizeTimer: Timer?
+    /// The widget reports its size on every layout pass (including during its own animations). Resizing a window costs the window server real
+    /// work, so only the size it settles on is applied: tiny changes are ignored and bursts are merged into one resize.
+    func sizeSettled(_ size: CGSize) {
+        let current = panel.frame.size
+        if abs(size.width - current.width) < 2 && abs(size.height - current.height) < 2 { return }
+        pendingSize = size
+        sizeTimer?.invalidate()
+        sizeTimer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { if let s = self?.pendingSize { self?.pendingSize = nil; self?.place(size: s) } }
+        }
     }
 
     func place(size: CGSize) {
@@ -159,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let m = NSMenu()
         m.addItem(withTitle: "Open Phoenix traces", action: #selector(openPhoenix), keyEquivalent: "").target = self
+        m.addItem(withTitle: model.calm ? "Calm mode: on (click to bring animation back)" : "Calm mode: off (click to stop all animation)", action: #selector(toggleCalm), keyEquivalent: "").target = self
         m.addItem(withTitle: "Restart voice daemon", action: #selector(restartDaemon), keyEquivalent: "").target = self
         m.addItem(withTitle: wakePaused ? "Resume wake word" : "Pause wake word", action: #selector(toggleWake), keyEquivalent: "").target = self
         m.addItem(withTitle: model.voiceOn ? "Voice replies: on (click for text only)" : "Text only (click to hear replies)", action: #selector(toggleVoiceMenu), keyEquivalent: "").target = self
@@ -172,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(withTitle: "Reset widget position", action: #selector(resetPos), keyEquivalent: "").target = self
         return m
     }
+    @objc func toggleCalm() { model.calm.toggle() }
     @objc func openPhoenix() { NSWorkspace.shared.open(URL(string: "http://localhost:6006")!) }
     var wakePaused = false
     @objc func toggleWake() {

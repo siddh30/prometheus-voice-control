@@ -58,6 +58,8 @@ func renderSnapshots(to dir: String) {
         m.swarm.connected = true
     }
     shot("15_swarm_auto") { twoComputers($0); $0.phase = .listening; $0.mode = "prometheus" }
+    shot("15b_swarm_dictating") { twoComputers($0); $0.phase = .listening; $0.mode = "dictate" }
+    shot("15c_manual_choice") { twoComputers($0); $0.mode = "dictate"; $0.manualText = "open linkedin and look at my profile" }
     shot("16_swarm_picked") { twoComputers($0); $0.swarm.targets = ["MacBook"]; $0.phase = .thinking; $0.mode = "prometheus"
         $0.transcript = "check for software updates" }
     shot("17_swarm_working") {

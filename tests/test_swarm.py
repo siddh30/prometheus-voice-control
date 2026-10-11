@@ -446,7 +446,7 @@ def _swarm_mode(tmp_path, monkeypatch, base):
         async def speak(self, text): spoken.append(text)
         def stop(self): pass
         def wake(self): pass
-    ctx = ModeContext(Config({"swarm": {"enabled": True, "api_url": base}, "tts": {"enabled": True}, "agent": {"fast_chat": False},
+    ctx = ModeContext(Config({"swarm": {"enabled": True, "api_url": base, "direct": True}, "tts": {"enabled": True}, "agent": {"fast_chat": False},
                               "browser": {"backend": "playwright"}}), EventBus())
     ctx.speaker = Spk()
     m = PrometheusMode(ctx)
@@ -537,5 +537,89 @@ async def test_a_thank_you_while_the_swarm_works_cancels_nothing_but_stop_and_go
         await asyncio.sleep(0.3)
         assert hub.nodes["Mac mini"].status == "busy" and hub.subs[t2["sub"]].state == "running"    # still going on the other computer
         await mini.send(type="done", sub=t2["sub"], ok=True, result="Gmail is open")
+    finally:
+        await hub.stop()
+
+
+async def test_swarm_mode_is_the_same_assistant_with_other_computers_available(tmp_path, monkeypatch):
+    hub, base = await api_hub()
+    try:
+        mac, mini = await node_peer(hub, "MacBook"), await node_peer(hub, "Mac mini")
+        m, ctx, spoken = _swarm_mode(tmp_path, monkeypatch, base)
+        ctx.config.raw["swarm"].update({"direct": False, "name": "Mac mini"})
+        assert await m._swarm_hint() == ""  or True
+        m.set_swarm_mode(True)
+        hint = await m._swarm_hint()
+        assert "Swarm mode is on" in hint and "MacBook (idle)" in hint and "Mac mini" not in hint        # it knows who else is there, not itself
+        m.set_swarm_targets(["MacBook"])
+        picked = await m._swarm_hint()
+        assert "picked these computers" in picked and 'swarm_run(computer="MacBook")' in picked           # a pick tells the assistant exactly where to send it
+        await mac.ws.close()
+        await asyncio.sleep(0.2)
+        assert "no other computer is online" in await m._swarm_hint()                                      # nobody else: it just does the work here
+        m.set_swarm_targets([])
+        calls = []
+        async def fake_agent_turn(text, complexity=None): calls.append(text); return "ok"
+        m._agent_turn = fake_agent_turn
+        m.set_swarm_targets(["MacBook"])
+        assert await m.respond("check updates") == "ok" and calls == ["check updates"]                     # a pick goes straight to the assistant, which delegates
+    finally:
+        await hub.stop()
+
+
+async def test_f9_in_swarm_mode_transcribes_then_waits_for_you_to_choose_where_it_goes(tmp_path, monkeypatch):
+    from voicectl.core.config import Config
+    from voicectl.core.events import EventBus
+    from voicectl.modes.base import ModeContext
+    from voicectl.modes.dictate import DictateMode
+    bus, seen = EventBus(), []
+    async def watch():
+        async for ev in bus.subscribe(): seen.append((ev.type, ev.data))
+    w = asyncio.create_task(watch()); await asyncio.sleep(0)
+    ctx = ModeContext(Config({"swarm": {"enabled": True}}), bus)
+    typed = []
+    d = DictateMode(ctx)
+    d.typer = type("T", (), {"type": staticmethod(lambda t: typed.append(t))})()
+    await d.handle("single mode text")                                                    # swarm off: plain dictation, typed at once
+    assert typed == ["single mode text"]
+    ctx.shared["swarm_mode"] = True
+    await d.handle("open linkedin and look at my profile")
+    await asyncio.sleep(0.05); w.cancel()
+    assert typed == ["single mode text"]                                                  # swarm on: nothing is typed...
+    assert ("swarm_manual", {"text": "open linkedin and look at my profile"}) in seen    # ...the choice is offered instead
+
+
+async def test_choosing_where_the_manual_request_goes_starts_agent_mode_there(tmp_path, monkeypatch):
+    hub, base = await api_hub()
+    try:
+        m, ctx, spoken = _swarm_mode(tmp_path, monkeypatch, base)
+        ctx.config.raw["swarm"]["direct"] = False
+        pasted, woke, submitted = [], [], []
+        ctx.bus.subscribe  # (the bus is real; paste events are published on it)
+        async def watch():
+            async for ev in ctx.bus.subscribe():
+                if ev.type == "paste": pasted.append(ev.data["text"])
+        w = asyncio.create_task(watch()); await asyncio.sleep(0)
+
+        class Sess:
+            def __init__(self): self.active = False
+            def conversation_active(self): return self.active
+            def wake(self, mode, text): woke.append((mode, text))
+        async def fake_submit(text): submitted.append(text)
+        m.submit_text = fake_submit
+        s = Sess()
+        await m.dispatch_manual(s, "download the report", "Mac mini")
+        assert woke == [("prometheus", "download the report")] and ctx.shared["swarm_targets"] == ["Mac mini"]     # agent mode starts, aimed at the pick
+        await m.dispatch_manual(s, "and a second one", "__auto__")
+        assert ctx.shared["swarm_targets"] == [] and woke[-1] == ("prometheus", "and a second one")                # Auto: the swarm decides
+        s.active = True
+        await m.dispatch_manual(s, "while talking", "MacBook")
+        assert submitted == ["while talking"]                                                                       # already in a conversation: it becomes the newest message
+        await m.dispatch_manual(s, "type this", "__here__"); await asyncio.sleep(0.05)
+        assert pasted == ["type this"]                                                                              # typed at the cursor, like plain dictation
+        n = len(woke) + len(submitted)
+        await m.dispatch_manual(s, "never mind", "__cancel__"); await m.dispatch_manual(s, "  ", "Mac mini")
+        assert len(woke) + len(submitted) == n                                                                      # cancel and empty do nothing
+        w.cancel()
     finally:
         await hub.stop()

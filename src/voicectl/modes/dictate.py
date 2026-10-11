@@ -24,5 +24,10 @@ class DictateMode(Mode):
             )
 
     async def handle(self, text: str) -> None:
+        if self.ctx.config.get("swarm.enabled", False) and self.ctx.shared.get("swarm_mode", False):
+            # Swarm mode: F9 is the MANUAL key. Transcribe, then let the user choose where it goes (a computer, auto, or typed here).
+            self.ctx.bus.publish("swarm_manual", text=text)
+            self.ctx.bus.publish("state", state="idle", mode=self.name)
+            return
         self.ctx.bus.publish("state", state="typing", mode=self.name)
         await asyncio.to_thread(self.typer.type, text)
