@@ -78,11 +78,11 @@ final class HotkeyTap {
         let down = type == .keyDown
 
         if let name = modeKeys[code] {
-            if !isRepeat { send("{\"type\":\"key\",\"name\":\"\(name)\",\"down\":\(down)}") }
+            if !isRepeat { if let j = Command.key(name: name, down: down).json { send(j) } }
             return nil
         }
         if code == cancelCode && isRecording() {         // Esc is only ours while a recording is active
-            if down && !isRepeat { send("{\"type\":\"key\",\"name\":\"\(cancelName)\",\"down\":true}") }
+            if down && !isRepeat { if let j = Command.key(name: cancelName, down: true).json { send(j) } }
             return nil
         }
         return Unmanaged.passUnretained(event)

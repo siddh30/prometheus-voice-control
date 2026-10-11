@@ -159,12 +159,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var wakePaused = false
     @objc func toggleWake() {
         wakePaused.toggle()
-        socket.send("{\"type\":\"wake\",\"enabled\":\(!wakePaused)}")
+        if let j = Command.wake(enabled: !wakePaused).json { socket.send(j) }
     }
     @objc func toggleVoiceMenu() { model.toggleVoice() }
     @objc func newChatMenu() { model.newConversation() }
     @objc func startFreshMenu() { model.startFresh() }
-    @objc func cleanMemory() { socket.send("{\"type\":\"maintenance\"}") }
+    @objc func cleanMemory() { if let j = Command.maintenance.json { socket.send(j) } }
     @objc func resetPos() { resetPosition() }
     @objc func restartDaemon() { supervisor?.restartDaemon() }
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }

@@ -75,6 +75,7 @@ final class OverlayModel: ObservableObject {
 
     private var clearTask: Task<Void, Never>?
     var send: ((String) -> Void)?
+    func send(_ command: Command) { if let json = command.json { send?(json) } }
 
     /// The hands-free conversation modes (they keep listening, show replies, can be talked over).
     var conversational: Bool { mode == "assistant" || mode == "conversation" || mode == "prometheus" }
@@ -260,30 +261,29 @@ final class OverlayModel: ObservableObject {
         }
     }
 
-    func sendInputMode() { send?("{\"type\":\"input_mode\",\"mode\":\"\(typing ? "typed" : "voice")\"}") }
+    func sendInputMode() { send(.inputMode(typed: typing)) }
 
     func toggleVoice() {
         voiceOn.toggle()                                   // optimistic; the daemon confirms with a "voice" event
-        send?("{\"type\":\"voice\",\"on\":\(voiceOn)}")
+        send(.voice(on: voiceOn))
     }
 
     /// Send a typed message: interrupts whatever Prometheus is saying or doing and becomes the newest instruction.
     func sendTyped(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ["type": "text", "text": t]),
-              let json = String(data: data, encoding: .utf8) else { return }
-        send?(json)
+        guard !t.isEmpty else { return }
+        send(.text(t))
     }
 
     /// A new, clean conversation (nothing from the old thread carries over); what Prometheus knows about you stays.
-    func newConversation() { send?("{\"type\":\"newchat\"}") }
+    func newConversation() { send(.newChat) }
 
     /// Forget everything Prometheus remembers (conversation, facts, sessions) and start with a clean slate.
-    func startFresh() { send?("{\"type\":\"fresh\"}") }
+    func startFresh() { send(.fresh) }
 
     func respondApproval(_ ok: Bool) {
         approval = nil
-        send?("{\"type\":\"approval\",\"approved\":\(ok)}")
+        send(.approval(ok))
     }
 
     private func resetRun() {

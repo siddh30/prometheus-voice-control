@@ -91,12 +91,8 @@ final class DaemonSocket {
                     case "input_request":      // the agent wants to see the screen / move the mouse / press keys
                         let id = data["id"] as? String ?? ""
                         screenQueue.async {
-                            var res = ScreenControl.handle(data)
-                            res["type"] = "input_result"
-                            res["id"] = id
-                            if let d = try? JSONSerialization.data(withJSONObject: res), let text = String(data: d, encoding: .utf8) {
-                                self.send(text)
-                            }
+                            let res = ScreenControl.handle(data)
+                            if let json = Command.inputResult(id: id, fields: res).json { self.send(json) }
                         }
                     case "paste":
                         if let text = data["text"] as? String { DispatchQueue.main.async { Paster.paste(text) } }

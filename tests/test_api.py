@@ -16,11 +16,22 @@ def test_every_command_is_validated_before_anything_runs():
     assert parse_command({"command": "input_result", "id": "1", "image": "xx"}).get("image") == "xx"   # extra payload is kept
 
 
-def test_the_protocol_names_match_what_the_widget_sends():
+def test_the_widget_and_the_daemon_define_exactly_the_same_commands():
     import pathlib, re
-    swift = "".join(p.read_text() for p in pathlib.Path("overlay/Sources/VoiceOverlay").glob("*.swift"))
-    sent = set(re.findall(r'\\"type\\":\\"([a-z_]+)\\"', swift)) | set(re.findall(r'"type": "([a-z_]+)"', swift))
-    assert sent and sent <= set(COMMANDS), f"the widget sends commands the daemon does not define: {sent - set(COMMANDS)}"
+    swift = pathlib.Path("overlay/Sources/VoiceOverlay/Protocol.swift").read_text()
+    enum = swift[swift.index("enum CommandName"):swift.index("enum Command {")]
+    names = set(re.findall(r"[a-z_]+", enum[enum.index("case "):].replace("case ", " ")))
+    names -= {"enum", "string", "caseiterable"}
+    assert names == set(COMMANDS), f"widget only: {names - set(COMMANDS)}; daemon only: {set(COMMANDS) - names}"
+
+
+def test_no_part_of_the_widget_builds_command_json_by_hand():
+    import pathlib, re
+    for p in pathlib.Path("overlay/Sources/VoiceOverlay").glob("*.swift"):
+        if p.name == "Protocol.swift":
+            continue
+        assert not re.search(r'\\"type\\":\\"(text|input_mode|voice|wake|newchat|fresh|maintenance|key|approval|input_result)\\"', p.read_text()), \
+            f"{p.name} hand-builds a command: use Command in Protocol.swift"
 
 
 async def test_one_dispatcher_routes_commands_and_a_bad_handler_hurts_nobody():
