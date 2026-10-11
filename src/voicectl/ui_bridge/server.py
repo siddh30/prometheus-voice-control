@@ -45,9 +45,24 @@ class UIBridge:
                 except Exception:
                     pass
 
+    async def _heartbeat(self) -> None:
+        """A beat every 3 s tells the widget the daemon is alive even when nothing else is happening; if it stops, the widget says so."""
+        import asyncio
+        while True:
+            await asyncio.sleep(3)
+            for ws in list(self._server.connections):
+                try:
+                    await ws.send('{"type":"heartbeat","data":{}}')
+                except Exception:
+                    pass
+
     async def run(self) -> None:
         import asyncio
         async with serve(self._handler, self.host, self.port, max_size=32 * 1024 * 1024) as server:   # screenshots travel this way
             self._server = server
             log.info("UI bridge on ws://%s:%d", self.host, self.port)
-            await self._pump()
+            beat = asyncio.create_task(self._heartbeat())
+            try:
+                await self._pump()
+            finally:
+                beat.cancel()

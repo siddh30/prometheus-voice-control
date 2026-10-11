@@ -56,6 +56,7 @@ final class OverlayModel: ObservableObject {
     @Published var steps: [Step] = []
     @Published var result: String = ""
     @Published var connected = false { didSet { if connected && !oldValue { sendInputMode() } } }     // a restarted daemon is told the mode again
+    @Published var stalled = false            // connected, but the daemon has said nothing for a while
     @Published var flash: Palette? = nil      // brief "done" / error tint
     @Published var approval: String? = nil
     @Published var session: String? = nil     // agent session chip
@@ -81,6 +82,7 @@ final class OverlayModel: ObservableObject {
     /// What the pill says. After a run finishes it names the outcome instead of dropping straight to IDLE.
     var label: String {
         if !connected { return "CONNECTING" }
+        if stalled { return "NOT RESPONDING" }
         if typing && phase == .listening && !speaking { return jobActive ? "WORKING" : "READY" }    // typing mode: nothing is being listened to
         if speaking && phase != .listening && phase != .transcribing { return "SPEAKING" }
         if jobActive && (phase == .listening || phase == .transcribing) { return "WORKING" }   // never "thinking" while talking
