@@ -157,6 +157,7 @@ async def run() -> None:
         import copy
         wake_cfg = copy.deepcopy(config.raw)
         wake_cfg.setdefault("stt", {}).setdefault("faster_whisper", {})["model"] = config.get("wake_word.model", "base.en")
+        wake_cfg["stt"].setdefault("faster_whisper", {})["cpu_threads"] = 2     # the always-on listener must not hog every core
         wake_cfg["stt"]["backend"] = "faster_whisper"          # always local: this listens to the room all day, nothing may leave the Mac
         wake_stt = backends.get("faster_whisper")(type(config)(wake_cfg))
         await asyncio.to_thread(wake_stt.warm_up)
@@ -213,7 +214,16 @@ async def run() -> None:
             wake.stop()
 
 
+def _be_polite() -> None:
+    """The voice assistant works in the background: give the desktop priority, so the screen and keyboard never wait for speech models."""
+    try:
+        os.nice(8)
+    except OSError:
+        pass
+
+
 def main() -> None:
+    _be_polite()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     try:
         asyncio.run(run())

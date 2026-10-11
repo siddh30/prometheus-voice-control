@@ -43,7 +43,7 @@ struct StatusGlyph: View {
 struct PulsingDot: View {
     let color: Color
     var body: some View {
-        TimelineView(.animation) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
             let pulse = 0.5 + 0.5 * sin(t * 5)
             ZStack {
@@ -57,7 +57,7 @@ struct PulsingDot: View {
 struct Spinner: View {
     let color: Color
     var body: some View {
-        TimelineView(.animation) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { tl in
             let angle = (tl.date.timeIntervalSinceReferenceDate * 360).truncatingRemainder(dividingBy: 360)
             Circle().trim(from: 0.0, to: 0.72)
                 .stroke(color, style: StrokeStyle(lineWidth: 2.2, lineCap: .round))

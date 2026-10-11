@@ -25,6 +25,7 @@ struct OverlayView: View {
             HStack(spacing: 8) {
                 if let mode = model.mode, model.isActive {
                     Text(model.tag)
+                        .lineLimit(1).fixedSize()                                    // a name like PROMETHEUS is never broken across lines
                         .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6)
                         .padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Capsule().fill(model.palette.a.opacity(0.25)))
@@ -44,6 +45,7 @@ struct OverlayView: View {
                 NewChatButton { model.newConversation() }
                 FreshButton { model.startFresh() }
             }
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(Capsule().fill(.white.opacity(0.07)).overlay(Capsule().stroke(.white.opacity(0.10), lineWidth: 0.5)))
 
@@ -51,8 +53,13 @@ struct OverlayView: View {
 
             if model.typing { TypeBox(model: model).transition(.opacity) }
 
-            if !model.transcript.isEmpty {
+            // In Swarm mode the swarm card already shows the request and each computer's answer: one text area, not three.
+            let swarmCard = model.swarmMode && model.swarm.latestJob != nil && model.isActive
+            if !model.transcript.isEmpty && !swarmCard {
                 CaptionView(text: "“\(model.transcript)”").transition(.opacity)
+            }
+            if swarmCard, !model.result.isEmpty, model.result != model.swarm.latestJob?.result {      // a farewell or notice: one plain line
+                CaptionView(text: model.result).transition(.opacity)
             }
 
             if model.conversational && model.notice.isEmpty
@@ -81,22 +88,22 @@ struct OverlayView: View {
                     .multilineTextAlignment(.center).lineLimit(3).frame(maxWidth: 380)
             }
 
-            if model.expanded { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
+            if model.expanded && !swarmCard { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
         }
         .padding(.horizontal, 22).padding(.vertical, model.isActive ? 16 : 10)
-        .frame(width: model.isActive ? 440 : nil)
-        .fixedSize(horizontal: !model.isActive, vertical: false)       // idle pill hugs its text, whatever the label
+        .frame(minWidth: model.isActive ? model.cardWidth : nil)
+        .fixedSize(horizontal: true, vertical: false)                  // the card is as wide as its widest row needs, never squeezed
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(red: 0.08, green: 0.09, blue: 0.10).opacity(0.93)))   // near-solid: reads the same on light and dark backgrounds
+                .fill(Color(red: 0.08, green: 0.09, blue: 0.10).opacity(0.96))     // near-solid (no live blur: blurring what is behind an animating window every frame loads the whole desktop)
                 .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(model.isActive ? model.palette.a.opacity(0.55) : .white.opacity(0.10), lineWidth: model.isActive ? 1.2 : 0.6))
         )
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.isActive)
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.expanded)
         .animation(.easeInOut(duration: 0.25), value: model.transcript)
-        .padding(20)
-        .frame(width: 480, height: 640, alignment: .bottom)
+        .padding(6)
+        .background(GeometryReader { g in Color.clear.preference(key: SizeKey.self, value: g.size) })   // the window follows this size exactly
+        .onPreferenceChange(SizeKey.self) { onSize($0) }
     }
 }
 

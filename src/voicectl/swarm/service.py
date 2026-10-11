@@ -7,6 +7,7 @@ If Voice Control is already running the swarm here, this waits quietly and takes
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from types import SimpleNamespace
@@ -30,6 +31,10 @@ async def serve() -> None:
 
 
 def main() -> None:
+    try:
+        os.nice(8)                                         # a background node never competes with the desktop
+    except OSError:
+        pass
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S", stream=sys.stdout)
     loop = asyncio.new_event_loop()
     main_task = loop.create_task(serve())

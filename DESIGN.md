@@ -206,6 +206,8 @@ Lifecycle controls:
 
 ## The widget
 
+The window hugs the widget's real size (no large invisible area for the system to composite), the open card is sized to the screen (about a third of its width, between 400 and 520 pt) and widens to fit its header row so words such as PROMETHEUS never break across lines. To keep the desktop smooth it has no live blur, no GPU glow filters (the ribbons draw their own soft halo), and animation is limited to 30 frames a second while it follows your voice and 12 otherwise; the devices map redraws every few seconds unless a computer is working. The background process runs at a lower priority than the desktop.
+
 States are colour-coded with Siri-style ribbons: idle, listening, transcribing, thinking, working, speaking, approval, music. Controls: voice on/off, type to Prometheus, new conversation, start fresh (two clicks). Long captions grow, then scroll. It is draggable, never steals focus (it only takes the keyboard while its text box is open), and uses a near-solid dark card so it reads on light and dark backgrounds.
 
 ## Music mode

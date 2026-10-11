@@ -87,7 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isMovableByWindowBackground = true       // drag it anywhere
         loadAnchor()
-        place(size: CGSize(width: 480, height: 640))   // the OverlayView's fixed frame
+        adaptToScreen()
+        place(size: CGSize(width: 260, height: 60))       // until the widget reports its real size
         panel.orderFrontRegardless()
 
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
@@ -142,7 +143,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         place(size: panel.frame.size)
     }
 
-    @objc func screensChanged() { place(size: panel.frame.size) }
+    /// The open card is about a third of a laptop screen and a bit narrower on a big monitor: readable everywhere, never wider than 520 pt.
+    func adaptToScreen() {
+        let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: anchorX, y: anchorY)) } ?? NSScreen.main
+        guard let w = screen?.visibleFrame.width else { return }
+        let target = min(520, max(400, w * 0.32))
+        if abs(model.cardWidth - target) > 1 { model.cardWidth = target }
+    }
+
+    @objc func screensChanged() { adaptToScreen(); place(size: panel.frame.size) }
 
     func applicationWillTerminate(_ n: Notification) { supervisor?.stop() }
 
@@ -182,6 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The link to the swarm hub (for the devices map in Swarm mode). It starts as soon as this computer knows where the hub is.
     func startSwarmLink() {
+        if swarmSocket == nil, let raw = ProcessInfo.processInfo.environment["VOICECTL_SWARM_URL"], let url = URL(string: raw) {     // development: point at a hub directly
+            let link = SwarmSocket(model: model.swarm, urlFile: URL(fileURLWithPath: "/dev/null"), override: url)
+            swarmSocket = link; link.start(); return
+        }
         guard swarmSocket == nil, let dir = supervisor?.dataDir else { return }
         let file = dir.appendingPathComponent("swarm_url.txt")
         guard FileManager.default.fileExists(atPath: file.path) else {
@@ -201,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func position() {
         guard let screen = NSScreen.main else { return }
         let f = screen.visibleFrame
-        panel.setFrame(NSRect(x: f.midX - 240, y: f.minY + 12, width: 480, height: 640), display: true)
+        panel.setFrame(NSRect(x: f.midX - panel.frame.width / 2, y: f.minY + 12, width: panel.frame.width, height: panel.frame.height), display: true)
     }
 }
 

@@ -505,3 +505,37 @@ def test_voice_commands_switch_between_swarm_and_single():
     for t in ["single mode", "just this computer", "switch to single", "swarm mode off", "only this mac"]:
         assert SWARM_OFF.match(t), t
     assert not SWARM_ON.match("the swarm of bees") and not SWARM_OFF.match("open single player mode")
+
+
+async def test_a_thank_you_while_the_swarm_works_cancels_nothing_but_stop_and_goodbye_behave(tmp_path, monkeypatch):
+    hub, base = await api_hub()
+    try:
+        mini = await node_peer(hub, "Mac mini")
+        m, ctx, spoken = _swarm_mode(tmp_path, monkeypatch, base)
+        m.set_swarm_mode(True)
+        assert m.keep_turn_on_speech() is False                                                     # nothing running: speech is just speech
+        turn = asyncio.create_task(m._swarm_turn("open linkedin"))
+        t = await mini.get("task")
+        await asyncio.sleep(0.4)
+        assert m._swarm_active and m.keep_turn_on_speech() is True                                  # hearing you does not cancel the work
+        assert await m.intercept("Thank you.") is True and not turn.done()                          # a thank-you is an acknowledgement
+        assert hub.nodes["Mac mini"].status == "busy"
+        turn.cancel()                                                                              # you said "stop" (or Esc)
+        await asyncio.gather(turn, return_exceptions=True)
+        assert (await mini.get("cancel"))["sub"] == t["sub"]
+        # saying goodbye leaves the work running (detach), instead of killing it
+        m2, ctx2, spoken2 = _swarm_mode(tmp_path, monkeypatch, base)
+        m2.set_swarm_mode(True)
+        await mini.send(type="done", sub=t["sub"], ok=False, result="stopped")
+        await asyncio.sleep(0.2)
+        turn2 = asyncio.create_task(m2._swarm_turn("open gmail"))
+        t2 = await mini.get("task")
+        await asyncio.sleep(0.4)
+        m2._swarm_detach = m2._swarm_active                                                         # what _goodbye does
+        turn2.cancel()
+        await asyncio.gather(turn2, return_exceptions=True)
+        await asyncio.sleep(0.3)
+        assert hub.nodes["Mac mini"].status == "busy" and hub.subs[t2["sub"]].state == "running"    # still going on the other computer
+        await mini.send(type="done", sub=t2["sub"], ok=True, result="Gmail is open")
+    finally:
+        await hub.stop()

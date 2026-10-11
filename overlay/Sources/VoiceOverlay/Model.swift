@@ -61,6 +61,7 @@ final class OverlayModel: ObservableObject {
     @Published var session: String? = nil     // agent session chip
     @Published var listenStart: Date? = nil
     @Published var speaking = false
+    @Published var cardWidth: CGFloat = 440     // how wide the open card is: follows the screen (set by the app)
     @Published var swarmMode = false          // Swarm: what you say goes to the agents on all your computers; Single: just this one
     let swarm = SwarmModel()                  // the hub's view of your computers, shown while Swarm mode is on
     @Published var checklist: [ChecklistItem] = []

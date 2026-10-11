@@ -14,7 +14,7 @@ from voicectl.agents.runner import Finished, TextDelta, TextEnd, TextStart
 from voicectl.agents.shared import runner_for
 from voicectl.core.wake import find_wake
 from voicectl.modes.base import ModeContext, modes
-from voicectl.modes.conversation import ConversationMode, sentences
+from voicectl.modes.conversation import ConversationMode, is_goodbye, sentences
 from voicectl.core.config import DATA_DIR, ROOT
 from voicectl.modes.instant import match_instant, run_instant
 from voicectl.modes.router import STOP, JevDecider, fast_route, normalize, parse_yes_no
@@ -259,7 +259,9 @@ class PrometheusMode(ConversationMode):
 
     # ---- approvals by voice ----
     def keep_turn_on_speech(self) -> bool:
-        return self._runner().pending_approval         # your "yes" must not cancel the very step waiting for it
+        # Your "yes" must not cancel the step waiting for it, and hearing you must not cancel work running on your other computers: what you
+        # said is judged once it is transcribed (stop cancels it, a new instruction replaces it, "thanks" does nothing).
+        return self._runner().pending_approval or self._swarm_active
 
     async def _watch_approvals(self) -> None:
         """A risky step needs a yes or no: ask aloud (the widget shows buttons too)."""
@@ -291,6 +293,8 @@ class PrometheusMode(ConversationMode):
             await self.ctx.speaker.speak("Done. I've tidied my memory and I'll start fresh.")
 
     async def intercept(self, text: str) -> bool:
+        if self._swarm_active and is_goodbye(text) and not re.search(r"\b(bye|goodbye|good ?night|see you|stop listening|that'?s all|i'?m done)\b", text, re.I):
+            return True                                    # "thank you" while it works is an acknowledgement: do nothing, cancel nothing
         runner = self._runner()
         spk = self.ctx.speaker
         if spk is not None and hasattr(spk, "set_voice"):
@@ -364,6 +368,13 @@ class PrometheusMode(ConversationMode):
         except (OSError, ValueError):
             pass
 
+    _swarm_active = False                                  # a request is running on the swarm right now
+    _swarm_detach = False                                  # the conversation ended: leave the remote work running
+
+    async def _goodbye(self, text: str) -> None:
+        self._swarm_detach = self._swarm_active            # saying bye must not kill a task that is already under way elsewhere
+        await super()._goodbye(text)
+
     async def _swarm_turn(self, text: str) -> str | None:
         """Send the request to the swarm (the computers you picked, or whoever the planner chooses), wait for the answer, say it ONCE.
         Returns None, having said nothing, if the hub can't be reached: the request is then handled here as in Single mode."""
@@ -387,6 +398,7 @@ class PrometheusMode(ConversationMode):
             tl.mark("routed")
         bus.publish("state", state="acting", mode=self.name)
         asked: set[str] = set()
+        self._swarm_active, self._swarm_detach = True, False
         try:
             while True:
                 job = await client.call("GET", f"/api/jobs/{job['id']}/wait?timeout=20")
@@ -397,7 +409,7 @@ class PrometheusMode(ConversationMode):
                 if job["state"] != "running":
                     break
         except asyncio.CancelledError:                                                       # talked over, or Esc: stop the work everywhere
-            if job:
+            if job and not self._swarm_detach:
                 try:
                     await asyncio.shield(client.call("POST", f"/api/jobs/{job['id']}/cancel", timeout=5))
                 except Exception:
@@ -407,6 +419,8 @@ class PrometheusMode(ConversationMode):
             log.info("lost the swarm mid-request (%s)", e)
             bus.publish("notice", text="Lost contact with the swarm.")
             return "I lost contact with the swarm."
+        finally:
+            self._swarm_active = False
         result = format_job(job)
         bus.publish("result", text=result)
         said = short_for_speech(result, 320)
