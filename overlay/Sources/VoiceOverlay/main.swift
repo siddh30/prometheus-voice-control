@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isMovableByWindowBackground = true       // drag it anywhere
         loadAnchor()
+        place(size: CGSize(width: 480, height: 640))   // the OverlayView's fixed frame
         panel.orderFrontRegardless()
 
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
@@ -115,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var x = anchorX - size.width / 2
         var y = growsDown ? anchorY - size.height : anchorY
         x = min(max(x, vf.minX), vf.maxX - size.width)
-        y = min(max(y, vf.minY), vf.maxY - size.height)
+        y = max(min(y, vf.maxY - size.height), vf.minY)   // on a short screen keep the bottom (where the widget sits) visible
         placing = true
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
         placing = false
