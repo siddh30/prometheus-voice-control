@@ -55,15 +55,14 @@ final class OverlayModel: ObservableObject {
     @Published var plan: [String] = []
     @Published var steps: [Step] = []
     @Published var result: String = ""
-    @Published var connected = false
-    @Published var typedTurn = false          // the current request was typed (see usesMic)
+    @Published var connected = false { didSet { if connected && !oldValue { sendInputMode() } } }     // a restarted daemon is told the mode again
     @Published var flash: Palette? = nil      // brief "done" / error tint
     @Published var approval: String? = nil
     @Published var session: String? = nil     // agent session chip
     @Published var listenStart: Date? = nil
     @Published var speaking = false
     @Published var checklist: [ChecklistItem] = []
-    @Published var typing = false             // the "type to Prometheus" box is open
+    @Published var typing = false { didSet { if typing != oldValue { sendInputMode() } } }   // the type box is open = typing mode: voice is ignored
     @Published var voiceOn = true             // speak replies aloud, or show them as text only (e.g. on speakers)
     @Published var musicTitle = ""
     @Published var duplex = "full"            // full | echo | half: whether talking over the assistant works by voice
@@ -82,7 +81,7 @@ final class OverlayModel: ObservableObject {
     /// What the pill says. After a run finishes it names the outcome instead of dropping straight to IDLE.
     var label: String {
         if !connected { return "CONNECTING" }
-        if typedTurn && phase == .listening && !speaking { return jobActive ? "WORKING" : "READY" }    // typed: nothing is being listened to
+        if typing && phase == .listening && !speaking { return jobActive ? "WORKING" : "READY" }    // typing mode: nothing is being listened to
         if speaking && phase != .listening && phase != .transcribing { return "SPEAKING" }
         if jobActive && (phase == .listening || phase == .transcribing) { return "WORKING" }   // never "thinking" while talking
         if phase == .idle { return isActive ? "IDLE" : "PROMETHEUS" }   // resting pill carries the name; once the card is open the tag already says it
@@ -102,8 +101,8 @@ final class OverlayModel: ObservableObject {
     }
 
     /// Typing and talking are two separate input kinds. Anything about the microphone (waveform, level, "listening")
-    /// belongs only to the voice kind; a typed request, or the box being open, never shows it.
-    var usesMic: Bool { !typing && !typedTurn }
+    /// belongs only to the voice kind; while the type box is open the daemon ignores the microphone entirely.
+    var usesMic: Bool { !typing }
 
     /// The result line, unless it only restates the checklist or steps already on screen ("Opened linkedin.com" twice).
     /// The checklist is the progress report, not an answer: a result shows only when it adds something to it.
@@ -155,7 +154,6 @@ final class OverlayModel: ObservableObject {
         case "level":
             let v = (data["value"] as? Double) ?? 0
             level = level * 0.55 + v * 0.45
-            if v > 0.15 && typedTurn { typedTurn = false }      // you started talking: the waveform is useful again
         case "state":
             let s = Phase(rawValue: (data["state"] as? String) ?? "idle") ?? .idle
             let newMode = (data["mode"] as? String) ?? mode
@@ -260,6 +258,8 @@ final class OverlayModel: ObservableObject {
         }
     }
 
+    func sendInputMode() { send?("{\"type\":\"input_mode\",\"mode\":\"\(typing ? "typed" : "voice")\"}") }
+
     func toggleVoice() {
         voiceOn.toggle()                                   // optimistic; the daemon confirms with a "voice" event
         send?("{\"type\":\"voice\",\"on\":\(voiceOn)}")
@@ -268,8 +268,6 @@ final class OverlayModel: ObservableObject {
     /// Send a typed message: interrupts whatever Prometheus is saying or doing and becomes the newest instruction.
     func sendTyped(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        typing = false
-        if !t.isEmpty { typedTurn = true }
         guard !t.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ["type": "text", "text": t]),
               let json = String(data: data, encoding: .utf8) else { return }
         send?(json)
@@ -304,7 +302,6 @@ final class OverlayModel: ObservableObject {
             // Keep agent results visible longer; they are read, not glanced at.
             
             self.transcript = ""; self.notice = ""; self.plan = []; self.steps = []; self.result = ""; self.checklist = []
-            self.typedTurn = false
             self.phase = .idle
         }
     }

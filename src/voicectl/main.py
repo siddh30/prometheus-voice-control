@@ -154,6 +154,14 @@ async def run() -> None:
                     session.wake(primary, typed)                          # not in a conversation yet: start one with your message
     text_task = asyncio.create_task(ui_text())
 
+    async def ui_input_mode() -> None:
+        async for ev in bus.subscribe():
+            if ev.type == "ui_command" and ev.data.get("command") == "input_mode" and primary in mode_objs:
+                mode = mode_objs[primary]
+                if hasattr(mode, "set_typed_only"):
+                    mode.set_typed_only(ev.data.get("mode") == "typed")
+    input_mode_task = asyncio.create_task(ui_input_mode())
+
     async def ui_wake_toggle() -> None:
         async for ev in bus.subscribe():
             if ev.type == "ui_command" and ev.data.get("command") == "wake" and wake:

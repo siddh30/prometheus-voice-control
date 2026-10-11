@@ -38,7 +38,7 @@ struct OverlayView: View {
                     .font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.4)
                     .foregroundStyle(model.connected ? Color.white.opacity(model.phase == .idle ? 0.45 : 0.9) : Color.orange.opacity(0.9))
                 if model.phase == .listening, model.usesMic, let since = model.listenStart { ElapsedLabel(since: since) }
-                VoiceToggle(on: model.voiceOn) { model.toggleVoice() }
+                if model.usesMic { VoiceToggle(on: model.voiceOn) { model.toggleVoice() } }       // voice controls are not needed while typing
                 TypeButton(on: model.typing) { model.typing.toggle() }
                 NewChatButton { model.newConversation() }
                 FreshButton { model.startFresh() }
@@ -52,7 +52,7 @@ struct OverlayView: View {
                 CaptionView(text: "“\(model.transcript)”").transition(.opacity)
             }
 
-            if model.conversational && model.notice.isEmpty
+            if model.conversational && model.notice.isEmpty && model.usesMic
                 && (model.phase == .listening || model.phase == .thinking || model.phase == .acting || model.speaking || model.jobActive || model.phase == .music) {
                 Text(model.phase == .music ? "Say “Prometheus …” (or press F10) to talk to me"
                      : model.jobActive ? "Working on it. Keep talking, say “stop” to cancel"

@@ -200,6 +200,7 @@ class ConversationMode(Mode):
         self._ears: Ears | None = None
         self._duplex = "half"                          # full (headphones) | echo (speakers, echo-aware) | half (speakers, deaf while it speaks)
         self._detector: TalkOverDetector | None = None
+        self.typed_only = False                        # typing mode: the microphone is ignored completely until you close it
         self._last_typed = 0.0                         # when you last typed to it: a silent microphone doesn't matter while you type
         self._self_heard = 0                           # times the mic caught our own voice this conversation
         self._false_barges = 0                         # times we cut ourselves off for nothing
@@ -344,6 +345,12 @@ class ConversationMode(Mode):
         if self._ears:
             self._ears.paused = False
 
+    def set_typed_only(self, on: bool) -> None:
+        """Typing mode is exclusive: while the type box is open nothing is heard; closing it brings your voice back."""
+        self.typed_only = on
+        if self._ears:
+            self._ears.paused = on
+
     def _on_speech_start(self) -> None:
         """You started talking: cut off whatever the assistant is doing, right now."""
         if self._ending:
@@ -414,6 +421,7 @@ class ConversationMode(Mode):
             return await asyncio.to_thread(stt.transcribe, audio, mic.sample_rate)
         await self._decide_duplex()
         ears = self._ears = self.ears_factory(mic, transcribe)
+        ears.paused = self.typed_only                          # typing mode: don't even open the microphone
         ears_task = asyncio.create_task(ears.run())
         idle_since, misses = time.monotonic(), 0
         try:
@@ -430,8 +438,8 @@ class ConversationMode(Mode):
                 except asyncio.TimeoutError:
                     if self._busy():
                         idle_since = time.monotonic()
-                    elif self.holding():
-                        idle_since = time.monotonic()          # music is playing: staying quiet is not 'nobody is here'
+                    elif self.holding() or self.typed_only:
+                        idle_since = time.monotonic()          # music is playing, or you are typing: staying quiet is not 'nobody is here'
                     elif time.monotonic() - idle_since >= no_speech_s:
                         misses, idle_since = misses + 1, time.monotonic()
                         if misses >= 2:               # two quiet windows (~30 s) in a row: nobody is there

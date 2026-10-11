@@ -141,3 +141,13 @@ def test_a_silent_microphone_is_not_a_warning_while_you_are_typing():
     m._last_typed = 0.0
     m._on_mic_problem("silent")
     assert [t for t, _ in out] == ["notice"]                     # but a silent mic is still reported when you are speaking
+
+
+def test_typing_mode_silences_the_ears_and_closing_it_brings_voice_back():
+    m = mode("headphones")
+    class E: paused = False
+    m._ears = E()
+    m.set_typed_only(True)
+    assert m.typed_only and m._ears.paused is True               # nothing is heard while the type box is open
+    m.set_typed_only(False)
+    assert not m.typed_only and m._ears.paused is False
