@@ -99,6 +99,21 @@ final class OverlayModel: ObservableObject {
         return (mode == "agent" || conversational) && (panelContent || !checklist.isEmpty)
     }
 
+    /// The result line, unless it only restates the checklist or steps already on screen ("Opened linkedin.com" twice).
+    /// The checklist is the progress report, not an answer: a result shows only when it adds something to it.
+    var visibleResult: String {
+        let words = { (t: String) -> Set<String> in
+            Set(t.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        }
+        let r = words(result)
+        if r.isEmpty { return "" }
+        let shown = checklist.map(\.text) + steps.map(\.text)
+        if shown.isEmpty { return result }
+        let known = shown.reduce(into: Set<String>()) { $0.formUnion(words($1)) }
+        let fresh = r.subtracting(known).subtracting(["the", "a", "an", "i", "i've", "ive", "it", "is", "to", "and", "done", "ok", "okay", "https", "http", "www", "com"])
+        return fresh.count * 5 <= r.count ? "" : result       // at most a fifth of its words are new: it is the same report again
+    }
+
     /// Chip text: what the assistant decided to do with your request, else the mode.
     var tag: String { (route.map { $0 == "chat" ? "CHAT" : $0.uppercased() } ?? mode ?? "").uppercased() }
 

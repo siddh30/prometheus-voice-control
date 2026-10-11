@@ -128,3 +128,16 @@ def test_mic_problems_are_reported_in_plain_words():
     assert out[0] == ("notice", {"text": "The microphone changed, so I reconnected to it."})
     assert "Microphone permission" in out[1][1]["text"]
     assert out[2][0] == "error" and "can't reach the microphone" in out[2][1]["message"]
+
+
+def test_a_silent_microphone_is_not_a_warning_while_you_are_typing():
+    out = []
+    m = mode("headphones")
+    m.ctx.bus.publish = lambda t, **d: out.append((t, d))
+    import time
+    m._last_typed = time.monotonic()                             # what submit_text records
+    m._on_mic_problem("silent")
+    assert out == []                                             # typing needs no microphone
+    m._last_typed = 0.0
+    m._on_mic_problem("silent")
+    assert [t for t, _ in out] == ["notice"]                     # but a silent mic is still reported when you are speaking

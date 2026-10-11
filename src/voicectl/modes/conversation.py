@@ -200,6 +200,7 @@ class ConversationMode(Mode):
         self._ears: Ears | None = None
         self._duplex = "half"                          # full (headphones) | echo (speakers, echo-aware) | half (speakers, deaf while it speaks)
         self._detector: TalkOverDetector | None = None
+        self._last_typed = 0.0                         # when you last typed to it: a silent microphone doesn't matter while you type
         self._self_heard = 0                           # times the mic caught our own voice this conversation
         self._false_barges = 0                         # times we cut ourselves off for nothing
         self._user_talking = False                     # you are mid-sentence: don't talk over you with announcements
@@ -319,6 +320,8 @@ class ConversationMode(Mode):
                  "silent": "I'm getting no sound from the microphone. Check the input device and Microphone permission.",
                  "unavailable": "I can't reach the microphone right now. Check that it's connected."}
         log.warning("microphone: %s", kind)
+        if kind == "silent" and time.monotonic() - self._last_typed < 300:
+            return                                      # you are typing to it, so a quiet mic is not a problem worth a warning
         self.ctx.bus.publish("notice" if kind != "unavailable" else "error", **({"text": texts[kind]} if kind != "unavailable" else {"message": texts[kind]}))
 
     def holding(self) -> bool:
@@ -384,6 +387,7 @@ class ConversationMode(Mode):
         text = (text or "").strip()
         if not text:
             return
+        self._last_typed = time.monotonic()
         self._cut_off()
         self.ctx.bus.publish("transcript", text=text, mode=self.name)
         if is_goodbye(text):
