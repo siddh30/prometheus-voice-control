@@ -99,6 +99,8 @@ final class OverlayModel: ObservableObject {
     }
 
     var isActive: Bool { typing || !manualText.isEmpty || (swarmMode && swarm.isWorking) || phase == .music || needsPermission || speaking || jobActive || !checklist.isEmpty || phase != .idle || !transcript.isEmpty || !notice.isEmpty || !steps.isEmpty || !result.isEmpty }
+    /// Is there anything for the black plan box (a checklist, steps, a plan, or a question waiting for your yes/no)? The answer is not part of it.
+    var hasPlan: Bool { !plan.isEmpty || !steps.isEmpty || !checklist.isEmpty || approval != nil }
     var expanded: Bool {
         let panelContent = !plan.isEmpty || !steps.isEmpty || !result.isEmpty || approval != nil
         return (mode == "agent" || conversational) && (panelContent || !checklist.isEmpty)

@@ -92,7 +92,9 @@ struct OverlayView: View {
                     .multilineTextAlignment(.center).lineLimit(3).frame(maxWidth: 380)
             }
 
-            if model.expanded { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
+            // Three separate things, in order: what you said (above), the plan (this box, only when there is one), what it answers (below).
+            if model.expanded && model.hasPlan { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
+            if !model.result.isEmpty { CaptionView(text: model.result).transition(.opacity) }
         }
         .padding(.horizontal, 22).padding(.vertical, model.isActive ? 16 : 10)
         .frame(minWidth: model.isActive ? model.cardWidth : nil)
@@ -170,16 +172,6 @@ struct AgentPanel: View {
                     }
                 }
                 .padding(10).background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.07)))
-            }
-            if !model.result.isEmpty {
-                Divider().overlay(.white.opacity(0.1))
-                let body = Text(model.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92))
-                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                if model.result.count > 420 {                 // long answers scroll; short ones size to their text
-                    ScrollView { body }.frame(height: 150)
-                } else {
-                    body.fixedSize(horizontal: false, vertical: true)
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
