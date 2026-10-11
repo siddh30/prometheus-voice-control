@@ -38,6 +38,7 @@ struct OverlayView: View {
                     .font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.4)
                     .foregroundStyle(model.connected ? Color.white.opacity(model.phase == .idle ? 0.45 : 0.9) : Color.orange.opacity(0.9))
                 if model.phase == .listening, let since = model.listenStart { ElapsedLabel(since: since) }
+                SwarmModeButton(on: model.swarmMode) { model.toggleSwarmMode() }
                 VoiceToggle(on: model.voiceOn) { model.toggleVoice() }
                 TypeButton(on: model.typing) { model.typing.toggle() }
                 NewChatButton { model.newConversation() }
@@ -45,6 +46,8 @@ struct OverlayView: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(Capsule().fill(.white.opacity(0.07)).overlay(Capsule().stroke(.white.opacity(0.10), lineWidth: 0.5)))
+
+            if model.swarmMode && model.isActive { SwarmPanel(swarm: model.swarm).transition(.opacity) }
 
             if model.typing { TypeBox(model: model).transition(.opacity) }
 
@@ -311,5 +314,50 @@ struct NewChatButton: View {
             .contentShape(Circle())
             .onTapGesture(perform: action)
             .help("New conversation: clean context, keeps what I know about you")
+    }
+}
+
+
+/// Single (this computer) or Swarm (all your computers): one tap. In Swarm mode the same voice and typing go straight to the agents on every
+/// computer, and the widget shows which of them are working.
+struct SwarmModeButton: View {
+    let on: Bool
+    let action: () -> Void
+    var body: some View {
+        Image(systemName: "point.3.connected.trianglepath.dotted")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(on ? Color.white : Color.white.opacity(0.6))
+            .frame(width: 22, height: 22)
+            .background(Circle().fill(on ? Color(red: 0.55, green: 0.40, blue: 1.0).opacity(0.85) : Color.white.opacity(0.08)))
+            .contentShape(Circle())
+            .onTapGesture(perform: action)
+            .help(on ? "Swarm mode: your request goes to all your computers. Click for single." : "Single: just this computer. Click to use all your computers.")
+    }
+}
+
+/// The devices map and the latest request, shown while Swarm mode is on.
+struct SwarmPanel: View {
+    @ObservedObject var swarm: SwarmModel
+    var body: some View {
+        VStack(spacing: 8) {
+            if !swarm.connected {
+                Text("Connecting to your other computers…").font(.system(size: 11, design: .rounded)).foregroundStyle(.orange.opacity(0.9))
+            } else {
+                DeviceMap(devices: swarm.devices, working: swarm.working, selected: swarm.targets, onTap: { swarm.toggleTarget($0) }).frame(height: 128)
+                HStack(spacing: 6) {
+                    Text(swarm.targets.isEmpty ? "AUTO: the swarm decides · tap a computer to choose" : "SENDING TO \(swarm.targets.sorted().joined(separator: ", ").uppercased())")
+                        .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(0.8).foregroundStyle(swarm.targets.isEmpty ? .white.opacity(0.4) : accent)
+                    if !swarm.targets.isEmpty {
+                        Text("AUTO").font(.system(size: 8, weight: .bold, design: .rounded)).tracking(1)
+                            .padding(.horizontal, 7).padding(.vertical, 3).background(Capsule().fill(.white.opacity(0.12))).foregroundStyle(.white.opacity(0.8))
+                            .onTapGesture { swarm.clearTargets() }
+                    }
+                }
+            }
+            if let job = swarm.latestJob { JobCard(job: job, model: swarm) }
+            if swarm.moreRunning > 0 {
+                Text("+\(swarm.moreRunning) more running").font(.system(size: 10, weight: .semibold, design: .rounded)).foregroundStyle(accent.opacity(0.8))
+            }
+        }
     }
 }

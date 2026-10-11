@@ -5,7 +5,7 @@ siblings, a phone, an iPhone Shortcut). It is a thin skin over the hub; it holds
 
   GET  /api/health
   GET  /api/computers                         who is online and what they are doing
-  POST /api/jobs        {text, computer?}     start a task (the planner picks the computer unless one is named)
+  POST /api/jobs        {text, computer?, computers?}  start a task (the planner picks unless you name one computer, or a list of them)
   GET  /api/jobs/{id}                         the job as it stands
   GET  /api/jobs/{id}/wait?timeout=30[&after=N]  wait for it to finish, to need approval, or (with after) for more than N of its
                                               parts to finish; then return it
@@ -58,7 +58,8 @@ def build_app(hub) -> web.Application:
         text = str(body.get("text", "")).strip()
         if not text:
             return web.json_response({"error": "text is required"}, status=400)
-        job = await hub.submit(text, str(body.get("computer", "")))
+        chosen = [str(c) for c in body.get("computers", []) if str(c).strip()] or str(body.get("computer", ""))
+        job = await hub.submit(text, chosen, source=str(request.headers.get("X-Swarm-Source", "ui")))
         return web.json_response(job.public(), status=201)
 
     async def get_job(request: web.Request):
@@ -103,7 +104,7 @@ def build_app(hub) -> web.Application:
             hub.listeners.discard(q)
         return resp
 
-    app = web.Application(middlewares=[guard])
+    app = web.Application(middlewares=[guard], client_max_size=25 * 1024 * 1024)
     app.add_routes([web.get("/api/health", health), web.get("/api/computers", computers), web.post("/api/jobs", create_job),
                     web.get("/api/jobs/{id}", get_job), web.get("/api/jobs/{id}/wait", wait_job), web.post("/api/jobs/{id}/cancel", cancel_job),
                     web.post("/api/subs/{id}/approve", approve), web.get("/api/events", events)])

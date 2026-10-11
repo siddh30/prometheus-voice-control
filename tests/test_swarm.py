@@ -401,3 +401,107 @@ async def test_parallel_work_is_reported_as_each_computer_finishes_not_all_at_th
         assert "MacBook" in last and "Mac mini" in last and hub.jobs[job].state == "done"            # then the combined result
     finally:
         await hub.stop()
+
+
+async def node_peer_t(hub, name):
+    p = Peer(await websockets.connect(f"ws://127.0.0.1:{hub.bound_port}/node?token=t"))
+    await p.send(type="hello", name=name, description="x", caps=[])
+    for _ in range(50):
+        if name in hub.nodes: return p
+        await asyncio.sleep(0.02)
+    raise AssertionError("node did not register")
+
+
+# ---------------- Swarm mode inside Prometheus ----------------
+async def test_a_request_can_be_sent_to_the_computers_you_picked_several_at_once():
+    hub, base = await api_hub()
+    try:
+        mac, mini = await node_peer(hub, "MacBook"), await node_peer(hub, "Mac mini")
+        async with aiohttp.ClientSession(headers=H) as s:
+            both = await (await s.post(base + "/api/jobs", json={"text": "update", "computers": ["MacBook", "mini"]})).json()
+            assert sorted(x["node"] for x in both["subs"]) == ["Mac mini", "MacBook"]                   # a list: the same task to each
+            one = await (await s.post(base + "/api/jobs", json={"text": "x", "computers": ["MacBook", "macbook"]})).json()
+            assert [x["node"] for x in one["subs"]] == ["MacBook"]                                      # no duplicates
+            gone = await (await s.post(base + "/api/jobs", json={"text": "x", "computers": ["MacBook", "Cray-1"]})).json()
+            assert gone["state"] == "failed" and "Cray-1 is not online" in gone["result"]               # a picked computer that went offline: clear failure
+    finally:
+        await hub.stop()
+
+
+def _swarm_mode(tmp_path, monkeypatch, base):
+    from voicectl.core.config import Config
+    from voicectl.core.events import EventBus
+    from voicectl.core.memory import Memory
+    from voicectl.modes.base import ModeContext
+    from voicectl.modes.prometheus import PrometheusMode
+    from voicectl.agents import runner as rm
+    monkeypatch.setenv("SWARM_TOKEN", "s3cret")
+    spoken = []
+
+    class Spk:
+        active = False
+        first_audio_at = 0.0
+        async def speak_many(self, chunks, clean=True, show=False):
+            async for c in chunks: spoken.append(c)
+        async def speak(self, text): spoken.append(text)
+        def stop(self): pass
+        def wake(self): pass
+    ctx = ModeContext(Config({"swarm": {"enabled": True, "api_url": base}, "tts": {"enabled": True}, "agent": {"fast_chat": False},
+                              "browser": {"backend": "playwright"}}), EventBus())
+    ctx.speaker = Spk()
+    m = PrometheusMode(ctx)
+    m._runner = lambda: rm.AgentRunner(ctx.config, ctx.bus, Memory(tmp_path / "m.db"))
+    return m, ctx, spoken
+
+
+async def test_swarm_mode_sends_the_request_to_the_computers_and_says_one_final_answer(tmp_path, monkeypatch):
+    hub, base = await api_hub()
+    try:
+        mac, mini = await node_peer(hub, "MacBook"), await node_peer(hub, "Mac mini")
+        m, ctx, spoken = _swarm_mode(tmp_path, monkeypatch, base)
+        assert m.swarm_on() is False                                                              # single until you switch
+        m.set_swarm_mode(True)
+        m.set_swarm_targets(["MacBook"])                                                           # picked by hand
+        turn = asyncio.create_task(m.respond("check for software updates"))
+        t = await mac.get("task")
+        assert t["text"] == "check for software updates" and not mini.ws.close_code                # only the MacBook was asked
+        await mac.send(type="done", sub=t["sub"], ok=True, result="Everything is up to date.")
+        out = await asyncio.wait_for(turn, 15)
+        assert out == "Everything is up to date." and spoken == ["Everything is up to date."]      # one answer, spoken once
+        m.set_swarm_targets([])                                                                    # auto: the swarm decides
+        turn = asyncio.create_task(m.respond("run the backup on both"))
+        t1, t2 = await mac.get("task"), await mini.get("task")
+        await mac.send(type="done", sub=t1["sub"], ok=True, result="a"); await mini.send(type="done", sub=t2["sub"], ok=True, result="b")
+        spoken.clear()
+        await asyncio.wait_for(turn, 15)
+        assert len(spoken) == 1                                                                    # two computers, still one spoken answer
+    finally:
+        await hub.stop()
+
+
+async def test_swarm_mode_falls_back_to_this_computer_when_the_hub_is_unreachable_and_cancels_when_interrupted(tmp_path, monkeypatch):
+    m, ctx, spoken = _swarm_mode(tmp_path, monkeypatch, "http://127.0.0.1:9")
+    m.set_swarm_mode(True)
+    assert await m._swarm_turn("anything") is None and spoken == []                                # nothing said: the request is handled here
+    hub, base = await api_hub()
+    try:
+        mini = await node_peer(hub, "Mac mini")
+        m, ctx, spoken = _swarm_mode(tmp_path, monkeypatch, base)
+        m.set_swarm_mode(True)
+        turn = asyncio.create_task(m._swarm_turn("long job"))
+        t = await mini.get("task")
+        await asyncio.sleep(0.4)                                                                   # the request is under way
+        turn.cancel()                                                                              # you talked over it / pressed Esc
+        await asyncio.gather(turn, return_exceptions=True)
+        assert (await mini.get("cancel"))["sub"] == t["sub"]                                       # the work stops on the other computer too
+    finally:
+        await hub.stop()
+
+
+def test_voice_commands_switch_between_swarm_and_single():
+    from voicectl.modes.prometheus import SWARM_OFF, SWARM_ON
+    for t in ["swarm mode", "use the swarm", "switch to swarm mode", "use all my computers", "turn on swarm mode"]:
+        assert SWARM_ON.match(t), t
+    for t in ["single mode", "just this computer", "switch to single", "swarm mode off", "only this mac"]:
+        assert SWARM_OFF.match(t), t
+    assert not SWARM_ON.match("the swarm of bees") and not SWARM_OFF.match("open single player mode")

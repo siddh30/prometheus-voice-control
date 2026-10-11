@@ -199,26 +199,28 @@ Then:
 
 ## Prometheus Swarm: your computers working as one
 
-Run Prometheus on more than one of your own Macs and control them all from one place. Tell it what you want; it decides which computer does what (or splits the work), shows which devices are working with a live animation, and brings the results back. **One voice**: you talk to the Prometheus on the Mac in front of you; when a task belongs elsewhere it sends it to the right computer, narrates the progress and speaks the combined result, while the other computers work silently.
+The same app on each of your Macs, connected. Every computer runs its own Prometheus and works fine on its own; the **Swarm / Single switch** in the widget (the three-dots button, or say "swarm mode" / "single mode") decides where your request goes:
 
-- **Open Prometheus Swarm on ONE computer, your controller.** It is its own Mac app with a floating widget in the Prometheus style: a pill at rest (a dot per computer) and a card with you in the middle, your computers around you with animated links to the ones working, an input box, and live steps, checklists, results and approvals. Opening it starts the hub and this computer's node itself.
-- **The other computers need no app open.** Run `scripts/swarm_node.sh install` once on each: it joins the swarm at every login and works in the background. (Or open Prometheus Swarm there too: no problem.)
-- **A phone** opens the same dashboard in its browser (nothing to install), or calls the API below.
-- **Voice Control is optional** and only adds the voice assistant. With the swarm on, it can send work to your other computers by voice ("on the mini, download the report").
+- **Single:** just this computer, exactly as before.
+- **Swarm:** what you say or type goes **straight to the agents on your computers** (no waiting for this computer's assistant to think first). The widget shows a map of your computers with live progress, and you get **one spoken answer** at the end. The same wake word, F9/F10 and microphone: there is only one voice in and one voice out.
+  - **Auto:** with nothing picked, the swarm decides who does what (or splits the work and runs the parts in parallel).
+  - **Manual:** tap one or more computers on the map to send the request only there; tap *AUTO* to go back. Only computers that are online can be picked. Naming one in your request ("on the mini, ...") works too.
+- Each computer acts as a **sub-agent**: it runs the task in a private session with no voice and no microphone, so it never interrupts you, and your own Prometheus there keeps working independently.
+- **A phone** opens the same swarm in its browser (nothing to install), or calls the API below.
 
-1. **On the controller:** create `config.local.yaml` (git-ignored, this computer's own settings): `swarm: {enabled: true, hub: true, name: "Mac mini", description: "Mac mini: always on, has my files"}`.
-2. **On every other computer:** `swarm: {enabled: true, name: "MacBook", hub_url: "ws://<controller>.local:8780", description: "MacBook: my laptop"}`.
+1. **Pick one computer to be the hub** (the one you'll sit at, or an always-on one). In a new file `config.local.yaml` (git-ignored, this computer's own settings): `swarm: {enabled: true, hub: true, name: "Mac mini", description: "Mac mini: always on, has my files"}`.
+2. **On every other computer** (also in its `config.local.yaml`): `swarm: {enabled: true, name: "MacBook", hub_url: "ws://<hub-computer>.local:8780", description: "MacBook: my laptop"}`.
 3. **Share one secret:** the same `SWARM_TOKEN=<any long random string>` in `.env` on every computer. (For an installed app also add the line to `~/Library/Application Support/VoiceControl/.env`.)
-4. **Install:** `scripts/release.sh "swarm"` on each computer (installs Voice Control and Prometheus Swarm), then on the controller open **Prometheus Swarm** and pin it to the Dock; on the others run `scripts/swarm_node.sh install`. macOS may ask to allow local network access: choose Allow.
+4. **Install** with `scripts/release.sh "swarm"` on each computer and open Voice Control. A computer that you never open the app on can run headless instead: `scripts/swarm_node.sh install` joins the swarm at every login. macOS may ask to allow local network access: choose Allow.
 
-Press the microphone in the widget and speak, or type: things like "on the mini, download the report", "run the backup on both", or just "find me three ML roles": with no machine named, the planner picks by who is idle and what each computer is good for. Work on several computers runs in parallel, and each result is reported as soon as that computer finishes. The widget shows only the latest request and shrinks back to a small pill by itself when the work is done.
+Press the three-dots button, then say or type things like "run the backup on both", "on the mini, download the report" or just "find me three ML roles".
 
 **The API.** The hub serves a small token-protected HTTP API (port 8781) that everything uses; you can call it too, for example from an iPhone Shortcut:
 
 ```sh
-curl -H "Authorization: Bearer $SWARM_TOKEN" http://<controller>.local:8781/api/computers
-curl -H "Authorization: Bearer $SWARM_TOKEN" -d '{"text":"download the report","computer":"Mac mini"}' http://<controller>.local:8781/api/jobs
-curl -H "Authorization: Bearer $SWARM_TOKEN" "http://<controller>.local:8781/api/jobs/<id>/wait?timeout=30"
+curl -H "Authorization: Bearer $SWARM_TOKEN" http://<hub>.local:8781/api/computers
+curl -H "Authorization: Bearer $SWARM_TOKEN" -d '{"text":"download the report","computers":["Mac mini"]}' http://<hub>.local:8781/api/jobs
+curl -H "Authorization: Bearer $SWARM_TOKEN" "http://<hub>.local:8781/api/jobs/<id>/wait?timeout=30"
 ```
 
 > This first version is built for a home network: it needs the shared secret but nothing more. Don't expose the ports to the internet. See [DESIGN.md](DESIGN.md#prometheus-swarm).

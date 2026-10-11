@@ -61,6 +61,8 @@ final class OverlayModel: ObservableObject {
     @Published var session: String? = nil     // agent session chip
     @Published var listenStart: Date? = nil
     @Published var speaking = false
+    @Published var swarmMode = false          // Swarm: what you say goes to the agents on all your computers; Single: just this one
+    let swarm = SwarmModel()                  // the hub's view of your computers, shown while Swarm mode is on
     @Published var checklist: [ChecklistItem] = []
     @Published var typing = false             // the "type to Prometheus" box is open
     @Published var voiceOn = true             // speak replies aloud, or show them as text only (e.g. on speakers)
@@ -93,14 +95,14 @@ final class OverlayModel: ObservableObject {
         }
     }
 
-    var isActive: Bool { typing || phase == .music || needsPermission || speaking || jobActive || !checklist.isEmpty || phase != .idle || !transcript.isEmpty || !notice.isEmpty || !steps.isEmpty || !result.isEmpty }
+    var isActive: Bool { typing || (swarmMode && swarm.isWorking) || phase == .music || needsPermission || speaking || jobActive || !checklist.isEmpty || phase != .idle || !transcript.isEmpty || !notice.isEmpty || !steps.isEmpty || !result.isEmpty }
     var expanded: Bool {
         let panelContent = !plan.isEmpty || !steps.isEmpty || !result.isEmpty || approval != nil
         return (mode == "agent" || conversational) && (panelContent || !checklist.isEmpty)
     }
 
     /// Chip text: what the assistant decided to do with your request, else the mode.
-    var tag: String { (route.map { $0 == "chat" ? "CHAT" : $0.uppercased() } ?? mode ?? "").uppercased() }
+    var tag: String { swarmMode ? "SWARM" : (route.map { $0 == "chat" ? "CHAT" : $0.uppercased() } ?? mode ?? "").uppercased() }
 
     var palette: Palette {
         if let f = flash { return f }
@@ -179,6 +181,11 @@ final class OverlayModel: ObservableObject {
             jobText = (data["text"] as? String) ?? jobText
         case "voice":
             voiceOn = (data["on"] as? Bool) ?? true
+        case "swarm_mode":
+            swarmMode = (data["on"] as? Bool) ?? false
+        case "swarm_target":
+            let names = Set((data["computers"] as? [String]) ?? [])
+            if names != swarm.targets { swarm.targets = names }
         case "music":
             musicTitle = (data["on"] as? Bool) == true ? ((data["title"] as? String) ?? "") : ""
         case "duplex":
@@ -236,6 +243,20 @@ final class OverlayModel: ObservableObject {
             phase = s
             if s == .idle { level = 0; scheduleClear() }
         }
+    }
+
+    /// Wire the swarm's computer picker to the daemon (which sends the next request to exactly those computers).
+    func linkSwarm() {
+        swarm.onTargets = { [weak self] names in
+            guard let data = try? JSONSerialization.data(withJSONObject: ["type": "swarm_target", "computers": names]),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            self?.send?(json)
+        }
+    }
+
+    func toggleSwarmMode() {
+        swarmMode.toggle()                                  // optimistic; the daemon confirms with a "swarm_mode" event
+        send?("{\"type\":\"swarm_mode\",\"on\":\(swarmMode)}")
     }
 
     func toggleVoice() {

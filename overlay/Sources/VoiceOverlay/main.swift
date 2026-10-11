@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var badgeWatch: AnyCancellable?
     var typingWatch: AnyCancellable?
     var bag = Set<AnyCancellable>()
+    var swarmSocket: SwarmSocket?
+    var swarmWatch: Timer?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         supervisor = DaemonSupervisor()
@@ -55,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onTrust = { [weak self] ok in MainActor.assumeIsolated { self?.model.needsPermission = !ok } }
         socket.onConfig = { [weak self] keys, cancel in self?.hotkeys.configure(hotkeys: keys, cancel: cancel) }
         hotkeys.start()
+        model.linkSwarm()
+        startSwarmLink()
         // Dock icon badge: you can see "REC" even when the widget is hidden behind a full-screen app.
         badgeWatch = model.$phase.receive(on: RunLoop.main).sink { phase in
             switch phase {
@@ -149,8 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(withTitle: "Restart voice daemon", action: #selector(restartDaemon), keyEquivalent: "").target = self
         m.addItem(withTitle: wakePaused ? "Resume wake word" : "Pause wake word", action: #selector(toggleWake), keyEquivalent: "").target = self
         m.addItem(withTitle: model.voiceOn ? "Voice replies: on (click for text only)" : "Text only (click to hear replies)", action: #selector(toggleVoiceMenu), keyEquivalent: "").target = self
+        m.addItem(withTitle: model.swarmMode ? "Swarm mode: on (click for single)" : "Swarm mode: off (click to use all my computers)", action: #selector(toggleSwarmMenu), keyEquivalent: "").target = self
         if FileManager.default.fileExists(atPath: (supervisor?.dataDir.appendingPathComponent("swarm_url.txt").path) ?? "") {
-            m.addItem(withTitle: "Open Prometheus Swarm", action: #selector(openSwarmMenu), keyEquivalent: "").target = self
+            m.addItem(withTitle: "Open the swarm dashboard in a browser", action: #selector(openSwarmMenu), keyEquivalent: "").target = self
         }
         m.addItem(withTitle: "New conversation (clean context)", action: #selector(newChatMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Start fresh (forget everything)", action: #selector(startFreshMenu), keyEquivalent: "").target = self
@@ -166,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc func toggleVoiceMenu() { model.toggleVoice() }
     @objc func openSwarmMenu() { supervisor?.openSwarm() }
+    @objc func toggleSwarmMenu() { model.toggleSwarmMode() }
     @objc func newChatMenu() { model.newConversation() }
     @objc func startFreshMenu() { model.startFresh() }
     @objc func cleanMemory() { socket.send("{\"type\":\"maintenance\"}") }
@@ -173,6 +179,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func restartDaemon() { supervisor?.restartDaemon() }
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
 
+
+    /// The link to the swarm hub (for the devices map in Swarm mode). It starts as soon as this computer knows where the hub is.
+    func startSwarmLink() {
+        guard swarmSocket == nil, let dir = supervisor?.dataDir else { return }
+        let file = dir.appendingPathComponent("swarm_url.txt")
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            if swarmWatch == nil {                              // the daemon writes it a moment after it starts
+                swarmWatch = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.startSwarmLink(); if self?.swarmSocket != nil { self?.swarmWatch?.invalidate(); self?.swarmWatch = nil } }
+                }
+            }
+            return
+        }
+        let link = SwarmSocket(model: model.swarm, urlFile: file)
+        swarmSocket = link
+        link.start()
+    }
 
     /// Bottom-center of the main screen, above the Dock.
     func position() {
@@ -193,29 +216,7 @@ MainActor.assumeIsolated {
         renderSnapshots(to: CommandLine.arguments[i + 1])
         exit(0)
     }
-    if CommandLine.arguments.contains("--swarm-selftest") {
-        exit(swarmSelfTest() ? 0 : 1)
-    }
-    if let i = CommandLine.arguments.firstIndex(of: "--swarm-icon"), i + 1 < CommandLine.arguments.count {
-        _ = NSApplication.shared
-        renderSwarmIcon(to: CommandLine.arguments[i + 1])
-        exit(0)
-    }
-    if let i = CommandLine.arguments.firstIndex(of: "--swarm-snapshot"), i + 1 < CommandLine.arguments.count {
-        _ = NSApplication.shared
-        renderSwarmSnapshots(to: CommandLine.arguments[i + 1])
-        exit(0)
-    }
     let app = NSApplication.shared
-    // The same binary is also the Prometheus Swarm app (its own bundle): it runs the swarm widget instead of the voice one.
-    let isSwarm = CommandLine.arguments.contains("--swarm") || URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent == "PrometheusSwarm"
-    if isSwarm {
-        app.setActivationPolicy(Bundle.main.bundlePath.hasSuffix(".app") ? .regular : .accessory)
-        let swarm = SwarmAppDelegate()
-        app.delegate = swarm
-        app.run()
-        exit(0)
-    }
     // Inside the .app: normal Dock icon. From the command line: stay invisible (dev mode).
     app.setActivationPolicy(Bundle.main.bundlePath.hasSuffix(".app") ? .regular : .accessory)
     let delegate = AppDelegate()

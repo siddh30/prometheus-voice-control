@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 import aiohttp
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from voicectl.swarm.client import HubClient
+
 log = logging.getLogger("voicectl.swarm.tools")
 
 
@@ -40,16 +42,10 @@ def format_job(job: dict) -> str:
 
 
 def build_swarm_tools(base: str, token: str, bus=None, max_wait_s: float = 300.0) -> list:
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    client = HubClient(base, token, "voice")                       # the assistant narrates its own jobs
 
-    async def call(method: str, path: str, **kw) -> dict | list:
-        timeout = aiohttp.ClientTimeout(total=kw.pop("timeout", 130))
-        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as s:
-            async with s.request(method, base + path, **kw) as r:
-                data = await r.json(content_type=None)
-                if r.status >= 400:
-                    raise RuntimeError(data.get("error", f"HTTP {r.status}") if isinstance(data, dict) else f"HTTP {r.status}")
-                return data
+    async def call(method: str, path: str, **kw):
+        return await client.call(method, path, **kw)
 
     async def safely(coro) -> dict[str, Any]:
         try:

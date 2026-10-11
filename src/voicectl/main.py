@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 
@@ -91,6 +92,26 @@ async def run() -> None:
                 log.info("%s", await maint.new_conversation(forget_conversation))
     newchat_task = asyncio.create_task(ui_newchat())
 
+    def _load_prefs() -> dict:
+        try:
+            return json.loads((DATA_DIR / "prefs.json").read_text())
+        except (OSError, ValueError):
+            return {}
+    ctx.shared["swarm_mode"] = bool(_load_prefs().get("swarm_mode", False)) and bool(config.get("swarm.enabled", False))
+    ctx.shared["swarm_targets"] = []
+
+    async def ui_swarm() -> None:
+        async for ev in bus.subscribe():
+            if ev.type != "ui_command" or primary not in mode_objs or not hasattr(mode_objs[primary], "set_swarm_mode"):
+                continue
+            if ev.data.get("command") == "swarm_mode":
+                if ev.data.get("on") and not config.get("swarm.enabled", False):
+                    bus.publish("notice", text="Swarm isn't set up on this computer yet. See the README, section Prometheus Swarm.")
+                mode_objs[primary].set_swarm_mode(bool(ev.data.get("on")) and bool(config.get("swarm.enabled", False)))
+            elif ev.data.get("command") == "swarm_target":
+                mode_objs[primary].set_swarm_targets(list(ev.data.get("computers", [])))
+    swarm_ui_task = asyncio.create_task(ui_swarm())
+
     async def ui_voice() -> None:
         async for ev in bus.subscribe():
             if ev.type == "ui_command" and ev.data.get("command") == "voice":
@@ -113,7 +134,9 @@ async def run() -> None:
 
     bridge = UIBridge(bus, config.get("ui.ws_host", "127.0.0.1"), config.get("ui.ws_port", 8765),
                       hello={"hotkeys": hotkey_map, "cancel": cancel_key},
-                      snapshot=lambda: [{"type": "voice", "data": {"on": speaker.voice_on}}])
+                      snapshot=lambda: [{"type": "voice", "data": {"on": speaker.voice_on}},
+                                        {"type": "swarm_mode", "data": {"on": bool(ctx.shared.get("swarm_mode", False))}},
+                                        {"type": "swarm_target", "data": {"computers": ctx.shared.get("swarm_targets", [])}}])
     bridge_task = asyncio.create_task(bridge.run())
 
     async def log_events() -> None:

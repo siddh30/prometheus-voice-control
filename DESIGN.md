@@ -266,46 +266,42 @@ Standing rule for changes to this project: check the architecture each time and 
 
 ## Prometheus Swarm
 
-Several of your own computers as one assistant. A **hub** knows who is online, splits a request, hands each part to a **node**, and shows everything in the **Prometheus Swarm app** (a native floating widget in the same style as Prometheus, with its own Dock icon). The same hub also serves a web dashboard for a phone.
-
-The Swarm app is the same binary as the Voice Control overlay started in swarm mode, so it reuses the widget's look and adds no new dependency. Opening it **starts its own backend** (`python -m voicectl.swarm.service`, supervised and restarted by the app): this computer's node, and the hub when config says so, with no microphone, hotkeys or voice. Voice Control is not needed. If Voice Control is also running here, a pid file (`swarm_backend.pid`) lets only one of them run the swarm; the other waits or skips. The widget finds the hub through `swarm_url.txt` in the data folder.
+The same app on several of your computers, connected. Every computer runs its own Prometheus and works on its own; the swarm is a layer that lets one of them send a request to all of them.
 
 ```mermaid
 flowchart LR
-    subgraph Dash["Prometheus Swarm app (native widget) or any browser (a phone)"]
-        D[Devices animation, checklists,<br/>results, approvals, stop]
+    You((You: one voice in,<br/>one voice out)) --> W
+    subgraph Here["This computer: Voice Control"]
+        W[Widget: Single / Swarm switch,<br/>devices map, tap to pick]
+        P[Prometheus<br/>wake word, F9, F10, one voice]
     end
     subgraph Hub["Hub (one computer)"]
-        REG[Registry<br/>who is online]
         PL[Planner<br/>rules, then a small model]
-        Q[Per-node queues<br/>and job state]
+        Q[Per-node queues and job state]
+        API[HTTP API :8781 + node link :8780]
     end
-    subgraph N1["MacBook node"]
-        A1[Its own agent session<br/>shares this Mac's Chrome and screen]
+    subgraph N1["MacBook (sub-agent)"]
+        A1[Private agent session<br/>no voice, no mic]
     end
-    subgraph N2["Mac mini node"]
-        A2[Its own agent session<br/>shares this Mac's Chrome and screen]
+    subgraph N2["Mac mini (sub-agent)"]
+        A2[Private agent session<br/>no voice, no mic]
     end
-    D <-- WebSocket /ui --> Hub
-    A1 -- dials in: WebSocket /node --> Hub
-    A2 -- dials in: WebSocket /node --> Hub
+    P -- Swarm mode: the request, picked computers or auto --> API
+    W <-- live state --> Hub
+    A1 -- dials in --> Hub
+    A2 -- dials in --> Hub
 ```
 
-- **One voice, many agents.** The Prometheus you talk to is the only one that speaks. Its agent has `swarm_computers`, `swarm_run`, `swarm_status`, `swarm_approve` and `swarm_cancel` tools that call the hub's HTTP API; it narrates progress (other computers' steps also appear on its widget) and speaks the combined result. An agent that is itself running a swarm task gets **no** swarm tools, so work can never bounce between computers.
-- **The swarm is an outer layer, not another assistant.** Each computer runs the normal Prometheus agent; the swarm only decides which computer gets which part (automatically, or exactly as you said), runs the parts in parallel, and reports each result **as that computer finishes**: `swarm_run` returns at the first completion and `swarm_wait` (or `GET /api/jobs/{id}/wait?after=N`) delivers the next, so the voice says "the MacBook is done" while the Mac mini is still working, then gives the combined answer.
-- **The widget stays small.** It shows only the latest request, keeps long answers to a few lines, and shrinks back to the pill by itself after the work is done and it has been left alone (never while a computer is working, something is typed, or the pointer is over it).
-- **You can speak to it.** The widget's microphone button uses macOS's own speech recognition: your words appear in the box as you talk, and a short pause sends them.
-- **The API is the single surface.** `GET /api/computers`, `POST /api/jobs {text, computer?}`, `GET /api/jobs/{id}` and `.../wait`, `POST .../cancel`, `POST /api/subs/{id}/approve`, `GET /api/events` (server-sent events); a bearer token on everything except `/api/health`. The voice tools, the widget's siblings, a phone and a Shortcut all use it; it holds no state of its own.
-- **Controller plus headless nodes.** You open Prometheus Swarm on one computer (it starts the hub and its own node). Other computers run `scripts/swarm_node.sh install`, a login launch agent that runs the same backend with no window.
-- **Nodes dial the hub** (not the other way), so a laptop works wherever it is, a sleeping Mac simply shows as offline, and a restarted hub is rejoined automatically with backoff.
-- **A swarm task runs in its own agent session** (private memory and event bus), so it never mixes with your local conversation. It shares that Mac's browser connection and screen control, so one swarm task runs on a node at a time and further ones queue.
-- **Planning:** you named a machine ("on the mini") or asked for all of them, or only one is online: no model needed. Otherwise a small model chooses (one computer unless the request has clearly independent parts); if it is unavailable or answers badly the least-busy idle computer is used. Invented computer names are discarded.
-- **Results** from several nodes are woven into a short answer by a small model, with a plain join as the fallback.
-- **Approvals** for risky steps (money, sending, deleting) are relayed to the dashboard, so you can answer from the phone.
-- **Protocol** (JSON over WebSocket): node to hub `hello`, `heartbeat`, `step`, `checklist`, `approval`, `done`; hub to node `task`, `cancel`, `approve`; dashboard to hub `submit`, `cancel`, `approve`; hub to dashboard `snapshot`, `node`, `job`, `sub`.
-- **Security in this version:** one shared token on every connection, a home network, no internet exposure. Per-device keys and per-node permissions are the planned next step; until then treat it as trusting everything on your network that has the token.
-- **Failure behaviour:** a node that disappears fails its task with a clear message (and shows greyed out); a task that runs over 20 minutes is cut off; a node error never takes the node down; telemetry is never in the path.
-- **Known limits:** a swarm task and local use of the same Mac share one browser tab, so avoid driving it locally while it works; the hub is a single point of failure (nodes keep retrying, and any computer can be made the hub by changing config); the phone is a controller only, since iOS cannot be automated like a Mac.
+- **Single / Swarm switch.** In Single, Prometheus works exactly as always. In Swarm, the transcribed request (spoken or typed) skips this computer's agent and goes **straight to the hub**, which assigns it to the computers' agents. There is one microphone and one voice: the answer is spoken **once**, at the end, with the full text on screen.
+- **Auto or manual.** With nothing picked the planner decides (a named computer or "both" needs no model; otherwise a small model, with a safe fallback); tapping computers on the widget's map sends the request only to those (several = the same task to each, in parallel). A picked computer that goes offline is dropped, and a request to one that is gone fails clearly.
+- **Every computer is a sub-agent.** A node dials the hub (so a laptop works wherever it is, a sleeping Mac shows as offline, and a restarted hub is rejoined with backoff) and runs each task in its **own private agent session** (own memory and event bus, sharing the Mac's browser connection and screen control). It has no voice and no microphone, so it never talks over you, and the Prometheus you use on that Mac is unaffected. One task per node at a time; more queue.
+- **Results.** Each computer's progress and result appear on the map as it finishes; several results are woven into one short answer by a small model (plain join as the fallback). Approvals for risky steps (money, sending, deleting) appear on the widget, so you can answer from a phone too.
+- **The API is the single surface** (`GET /api/computers`, `POST /api/jobs {text, computer?, computers?}`, `GET /api/jobs/{id}` and `.../wait?after=N`, `POST .../cancel`, `POST /api/subs/{id}/approve`, `GET /api/events` as server-sent events; a bearer token on everything but `/api/health`). The widget's link, the voice assistant's `swarm_*` tools, a phone and a Shortcut all use it; it holds no state of its own.
+- **The assistant's swarm tools.** Even in Single mode, if you say "on the mini, ...", the agent can call `swarm_run` / `swarm_wait` (results reported as each computer finishes). An agent that is itself running a swarm task gets none of these tools, so work can never bounce between computers.
+- **Headless computers.** A computer you never open the app on can run `scripts/swarm_node.sh install`, a login launch agent running the same node with no window. A pid file (`swarm_backend.pid`) lets only one process per computer run the swarm.
+- **Security in this version:** one shared token on every connection, on a home network, no internet exposure. Per-device keys and per-node permissions are the planned next step.
+- **Failure behaviour.** If the hub is unreachable the request is handled on this computer, with a notice; interrupting (talking over it, Esc) cancels the work on the other computers too; a node that disappears fails its task with a clear message and shows greyed out; a task over 20 minutes is cut off; a node error never takes the node down.
+- **Known limits.** A swarm task and local use of the same Mac share one browser tab, so avoid driving it locally while a swarm task runs there; the hub is a single point of failure (nodes keep retrying, and any computer can be made the hub by config); a phone is a controller only, since iOS cannot be automated like a Mac.
 
 ## Observability
 

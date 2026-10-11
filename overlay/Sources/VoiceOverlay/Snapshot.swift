@@ -51,6 +51,25 @@ func renderSnapshots(to dir: String) {
     shot("11_music") { $0.phase = .music; $0.mode = "prometheus"; $0.musicTitle = "Queen – Bohemian Rhapsody (Official Video Remastered)" }
     shot("13_long_speaking") { $0.phase = .thinking; $0.mode = "prometheus"; $0.speaking = true
         $0.transcript = String(repeating: "Here is a long answer that keeps going so the caption has to grow and then scroll to follow the newest words. ", count: 2) }
+    func twoComputers(_ m: OverlayModel, working: Set<String> = []) {
+        m.swarmMode = true
+        m.swarm.devices = [SwarmDevice(name: "MacBook", status: working.contains("MacBook") ? "busy" : "idle", online: true),
+                           SwarmDevice(name: "Mac mini", status: working.contains("Mac mini") ? "busy" : "idle", online: true)]
+        m.swarm.connected = true
+    }
+    shot("15_swarm_auto") { twoComputers($0); $0.phase = .listening; $0.mode = "prometheus" }
+    shot("16_swarm_picked") { twoComputers($0); $0.swarm.targets = ["MacBook"]; $0.phase = .thinking; $0.mode = "prometheus"
+        $0.transcript = "check for software updates" }
+    shot("17_swarm_working") {
+        twoComputers($0, working: ["MacBook", "Mac mini"]); $0.phase = .acting; $0.mode = "prometheus"
+        $0.transcript = "research Apple and Bloomberg ML roles on both"
+        func sub(_ id: String, _ node: String, _ step: String) -> SwarmSub {
+            SwarmSub(id: id, job: "j1", node: node, why: "", state: "running", steps: [SwarmStep(text: step, done: false, failed: false)],
+                     checklist: [SwarmCheck(text: "Open the careers page", status: "done"), SwarmCheck(text: "Find matching roles", status: "in_progress")], result: "", approval: "")
+        }
+        $0.swarm.jobs = [SwarmJob(id: "j1", request: "research Apple and Bloomberg ML roles on both", state: "running", result: "",
+                                  subs: [sub("a", "MacBook", "Opening apple.com/careers"), sub("b", "Mac mini", "Opening bloomberg.com/careers")])]
+    }
     shot("12_text_only") { $0.phase = .idle; $0.voiceOn = false }
     shot("5_action") { $0.phase = .acting; $0.mode = "action"; $0.transcript = "Open the downloads folder" }
     shot("6_agent_plan") {

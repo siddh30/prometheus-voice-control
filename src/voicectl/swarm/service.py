@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-"""`python -m voicectl.swarm.service`: the Prometheus Swarm app's own backend. Opening the Swarm app starts this, so there is no need to
-run Voice Control on the same computer. It is this computer's node (and the hub, when config says so), with no microphone, hotkeys or voice.
+"""`python -m voicectl.swarm.service`: a HEADLESS swarm node, for a computer you never open Voice Control on (`scripts/swarm_node.sh install`
+runs it at login). It is this computer's node (and the hub, when config says so), with no microphone, hotkeys, voice or window.
 
 If Voice Control is already running the swarm here, this waits quietly and takes over if that one quits."""
 

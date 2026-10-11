@@ -74,6 +74,7 @@ class Job:
     result: str = ""
     started: float = field(default_factory=time.time)
     ended: float = 0.0
+    source: str = "ui"                     # who asked: "ui" (the widget, a phone, a Shortcut) or "voice" (the voice assistant, which narrates itself)
 
     def public(self) -> dict:
         return {"id": self.id, "request": self.request, "state": self.state, "result": self.result, "started": self.started,
@@ -106,6 +107,8 @@ class Hub:
         self.listeners: set[asyncio.Queue] = set()          # live event streams (the API's /api/events)
         self._changed = asyncio.Event()                     # set whenever any job or subtask changes: wait_job wakes on it
         self.api = None
+        self.on_sub_done: list = []                           # callbacks (sub, job): a computer finished its part
+        self.on_job_done: list = []                           # callbacks (job): the whole request is finished
 
     # ---------- plumbing ----------
     def _authorized(self, request: Request) -> bool:
@@ -228,20 +231,24 @@ class Hub:
                 return n
         return None
 
-    async def submit(self, request: str, computer: str = "") -> Job | None:
-        """Start a request. `computer` pins it to one machine; otherwise the planner decides."""
+    async def submit(self, request: str, computer: str | list[str] = "", source: str = "ui") -> Job | None:
+        """Start a request. `computer` pins it to one computer or a list of them (the same task to each, in parallel); otherwise the planner decides."""
         request = request.strip()
         if not request:
             return None
-        job = Job(uuid.uuid4().hex[:8], request)
+        job = Job(uuid.uuid4().hex[:8], request, source=source)
         self.jobs[job.id] = job
         try:
             nodes = [n.public() for n in self.nodes.values()]
-            if computer.strip():
-                target = self._find_node(computer)
-                if target is None:
-                    raise NoNodes(f"{computer} is not online")
-                assignments = [Assignment(target.name, request, "you chose it")]
+            chosen = [c for c in ([computer] if isinstance(computer, str) else computer) if c and c.strip()]
+            if chosen:
+                assignments = []
+                for name in chosen:
+                    target = self._find_node(name)
+                    if target is None:
+                        raise NoNodes(f"{name} is not online")
+                    if all(a.node != target.name for a in assignments):
+                        assignments.append(Assignment(target.name, request, "you chose it"))
             else:
                 assignments = await make_plan(request, nodes, self.llm, self.default_node)
         except NoNodes as e:
@@ -292,6 +299,7 @@ class Hub:
             await self._broadcast({"type": "node", "node": node.public()})
         await self._broadcast({"type": "sub", "sub": sub.public()})
         job = self.jobs.get(sub.job)
+        self._fire(self.on_sub_done, sub, job)
         if job and all(s.state in ("done", "failed", "cancelled") for s in job.subs) and job.state == "running":
             job.state = "done" if any(s.state == "done" for s in job.subs) else ("cancelled" if all(s.state == "cancelled" for s in job.subs) else "failed")
             try:
@@ -300,7 +308,18 @@ class Hub:
                 job.result = await join_results(job)
             job.ended = time.time()
             await self._broadcast({"type": "job", "job": job.public()})
+            self._fire(self.on_job_done, job)
         await self._dispatch(sub.node)
+
+    def _fire(self, callbacks: list, *args) -> None:
+        """Run listeners without ever letting one break the hub (a voice that fails must not stop a job from finishing)."""
+        for cb in callbacks:
+            try:
+                res = cb(*args)
+                if asyncio.iscoroutine(res):
+                    asyncio.get_running_loop().create_task(res)
+            except Exception:
+                log.exception("a swarm listener failed")
 
     async def cancel(self, job_id: str) -> None:
         job = self.jobs.get(job_id)
@@ -367,6 +386,7 @@ class Hub:
                     await self.cancel(str(msg.get("job", "")))
                 elif kind == "approve":
                     await self.approve(str(msg.get("sub", "")), bool(msg.get("ok")))
+
 
     async def _handler(self, ws: ServerConnection) -> None:
         path = urlparse(ws.request.path).path

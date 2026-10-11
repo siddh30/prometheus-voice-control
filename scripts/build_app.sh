@@ -55,43 +55,7 @@ else
   codesign --force --deep --sign - "$APP" 2>&1 | tail -1
 fi
 
-# ---- Prometheus Swarm: a second, tiny app (same binary in swarm mode) with its own icon and Dock entry ----
-SW="$HOME/Applications/Prometheus Swarm.app"
-"$BIN" --swarm-icon "$T/swarm.png" > /dev/null
-mkdir "$T/Swarm.iconset"
-for s in 16 32 64 128 256 512; do
-  sips -z $s $s "$T/swarm.png" --out "$T/Swarm.iconset/icon_${s}x${s}.png" > /dev/null
-  sips -z $((s*2)) $((s*2)) "$T/swarm.png" --out "$T/Swarm.iconset/icon_${s}x${s}@2x.png" > /dev/null
-done
-iconutil -c icns "$T/Swarm.iconset" -o "$T/Swarm.icns"
-rm -rf "$SW"
-mkdir -p "$SW/Contents/MacOS" "$SW/Contents/Resources"
-cp "$BIN" "$SW/Contents/MacOS/PrometheusSwarm"
-cp "$T/Swarm.icns" "$SW/Contents/Resources/AppIcon.icns"
-printf '%s' "$ROOT" > "$SW/Contents/Resources/project_path"           # the code its backend runs (the same release as Voice Control)
-cat > "$SW/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Prometheus Swarm</string>
-  <key>CFBundleDisplayName</key><string>Prometheus Swarm</string>
-  <key>CFBundleIdentifier</key><string>com.siddharth.prometheusswarm</string>
-  <key>CFBundleExecutable</key><string>PrometheusSwarm</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
-  <key>NSHighResolutionCapable</key><true/>
-  <key>NSLocalNetworkUsageDescription</key><string>Prometheus Swarm talks to the hub on your home network to show and control your computers.</string>
-  <key>NSMicrophoneUsageDescription</key><string>Prometheus Swarm listens when you press the microphone, so you can speak to your swarm.</string>
-  <key>NSSpeechRecognitionUsageDescription</key><string>Prometheus Swarm turns what you say into text, on your Mac, to send to your swarm.</string>
-</dict></plist>
-PLIST
-if security find-identity -p codesigning | grep -q "$ID"; then
-  codesign --force --deep --sign "$ID" "$SW" 2>&1 | tail -1
-else
-  codesign --force --deep --sign - "$SW" 2>&1 | tail -1
-fi
+# Prometheus Swarm is a mode of this app now (the Swarm / Single switch in the widget): remove the separate app an earlier build installed.
+rm -rf "$HOME/Applications/Prometheus Swarm.app"
 rm -rf "$T"
 echo "Installed: $APP"
-echo "Installed: $SW"

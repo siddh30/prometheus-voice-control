@@ -15,7 +15,7 @@ from voicectl.agents.shared import runner_for
 from voicectl.core.wake import find_wake
 from voicectl.modes.base import ModeContext, modes
 from voicectl.modes.conversation import ConversationMode, sentences
-from voicectl.core.config import ROOT
+from voicectl.core.config import DATA_DIR, ROOT
 from voicectl.modes.instant import match_instant, run_instant
 from voicectl.modes.router import STOP, JevDecider, fast_route, normalize, parse_yes_no
 from voicectl.tts.speaker import clean_for_speech, strip_emoji
@@ -40,6 +40,8 @@ VOICE_ON = re.compile(r"^(?:please\s+)?(?:(?:speak|talk)\s+(?:to\s+me(?:\s+again
 FRESH = re.compile(r"^(?:please\s+)?(?:forget\s+(?:everything|all(?:\s+of)?\s+(?:it|that|this|of\s+it))(?:\s+(?:we|you)\s+(?:know|talked|discussed|said))?|"
                    r"start\s+(?:fresh|over|from\s+scratch|a\s+new\s+(?:session|conversation))|(?:wipe|erase|delete|clear)\s+(?:out\s+)?(?:all\s+(?:of\s+)?)?(?:your|the|my)?\s*(?:all\s+)?memor(?:y|ies)|"
                    r"(?:wipe|erase)\s+(?:everything|it\s+all)|clear\s+everything)(?:\s+(?:please|now))?\W*$", re.I)
+SWARM_ON = re.compile(r"^(?:please\s+)?(?:(?:turn on|switch to|go to|use|enable|start)\s+(?:the\s+)?swarm(?:\s+mode)?|swarm\s+mode(?:\s+on)?|use\s+(?:all\s+)?(?:of\s+)?my\s+(?:other\s+)?(?:computers|macs|machines))\W*$", re.I)
+SWARM_OFF = re.compile(r"^(?:please\s+)?(?:(?:turn off|switch to|go to|use|stop|disable)\s+(?:the\s+)?(?:swarm(?:\s+mode)?|single(?:\s+mode)?)|single\s+mode|swarm\s+mode\s+off|just\s+(?:this|the one)\s+(?:computer|mac|machine)|only\s+this\s+(?:computer|mac|machine))\W*$", re.I)
 NEW_CHAT = re.compile(r"^(?:please\s+)?(?:(?:start|begin|open)\s+(?:a\s+)?(?:new|fresh|clean)\s+(?:conversation|chat|session|context|thread)|new\s+(?:conversation|chat|session|thread)|"
                       r"(?:reset|refresh|clear)\s+(?:the\s+|this\s+|your\s+)?(?:conversation|chat|context|thread)|(?:you(?:'re|\s+are)\s+)?stuck(?:,?\s+(?:reset|refresh)(?:\s+(?:it|yourself))?)?)(?:\s+(?:please|now))?\W*$", re.I)
 FORGET_LEARNED = re.compile(r"^(?:please\s+)?forget\s+(?:(?:everything|all|what)\s+)?(?:(?:that\s+)?you(?:'ve|\s+have)?\s+learn(?:ed|t)|learn(?:ed|t)|your\s+learnings|the\s+lessons)(?:\s+(?:please|now))?\W*$", re.I)
@@ -301,6 +303,14 @@ class PrometheusMode(ConversationMode):
                 self.ctx.bus.publish("result", text="Voice is back on.")
                 await spk.speak("Voice is back on.")
                 return True
+        if self.ctx.config.get("swarm.enabled", False) and (SWARM_ON.match(text.strip()) or SWARM_OFF.match(text.strip())):
+            on = bool(SWARM_ON.match(text.strip()))
+            self.set_swarm_mode(on)
+            msg = "Swarm mode. What you say now goes to all your computers." if on else "Single mode. Just this computer."
+            self.ctx.bus.publish("result", text=msg)
+            if self.ctx.speaker:
+                asyncio.create_task(self.ctx.speaker.speak(msg))
+            return True
         if FORGET_LEARNED.match(text.strip()) and self.ctx.shared.get("maintenance") is not None and not self._busy():
             async def forget() -> None:
                 await self.ctx.shared["maintenance"].forget_learnings()
@@ -330,8 +340,86 @@ class PrometheusMode(ConversationMode):
             return True
         return False
 
+    # ---- Swarm mode: your request goes straight to the agents on your computers ----
+    def swarm_on(self) -> bool:
+        return bool(self.ctx.config.get("swarm.enabled", False) and self.ctx.shared.get("swarm_mode", False))
+
+    def set_swarm_mode(self, on: bool) -> None:
+        self.ctx.shared["swarm_mode"] = on
+        self.ctx.bus.publish("swarm_mode", on=on)
+        self._save_swarm_pref("swarm_mode", on)
+
+    def set_swarm_targets(self, names: list[str]) -> None:
+        """The computers you picked by hand (none = let the swarm decide)."""
+        self.ctx.shared["swarm_targets"] = [str(n) for n in names][:8]
+        self.ctx.bus.publish("swarm_target", computers=self.ctx.shared["swarm_targets"])
+
+    def _save_swarm_pref(self, key: str, value) -> None:
+        path = DATA_DIR / "prefs.json"
+        try:
+            prefs = json.loads(path.read_text()) if path.exists() else {}
+            prefs[key] = value
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(prefs))
+        except (OSError, ValueError):
+            pass
+
+    async def _swarm_turn(self, text: str) -> str | None:
+        """Send the request to the swarm (the computers you picked, or whoever the planner chooses), wait for the answer, say it ONCE.
+        Returns None, having said nothing, if the hub can't be reached: the request is then handled here as in Single mode."""
+        from voicectl.swarm.client import HubClient, short_for_speech
+        from voicectl.swarm.tools import api_base, format_job
+        from voicectl.swarm.wiring import swarm_token
+        cfg, bus, tl = self.ctx.config, self.ctx.bus, getattr(self, "_tl", None)
+        client = HubClient(api_base(cfg), swarm_token(), "voice")           # we speak the answer ourselves: the hub stays quiet
+        targets = list(self.ctx.shared.get("swarm_targets") or [])
+        job: dict | None = None
+        try:
+            job = await client.call("POST", "/api/jobs", timeout=20, json={"text": text, "computers": targets})
+        except asyncio.CancelledError:
+            raise                                          # interrupted before the hub even answered: nothing to cancel yet
+        except Exception as e:
+            log.info("swarm unreachable (%s: %s); handling it on this computer", type(e).__name__, str(e)[:80])
+            bus.publish("notice", text="Couldn't reach the swarm, so I'm doing this on this computer.")
+            return None
+        if tl:
+            tl.kind = "swarm"
+            tl.mark("routed")
+        bus.publish("state", state="acting", mode=self.name)
+        asked: set[str] = set()
+        try:
+            while True:
+                job = await client.call("GET", f"/api/jobs/{job['id']}/wait?timeout=20")
+                for s in job.get("subs", []):
+                    if s.get("approval") and s["id"] not in asked and self.ctx.speaker:         # a computer needs your OK: say so once
+                        asked.add(s["id"])
+                        asyncio.create_task(self.ctx.speaker.speak(f"{s['node']} is asking: {short_for_speech(s['approval'], 160)}"))
+                if job["state"] != "running":
+                    break
+        except asyncio.CancelledError:                                                       # talked over, or Esc: stop the work everywhere
+            if job:
+                try:
+                    await asyncio.shield(client.call("POST", f"/api/jobs/{job['id']}/cancel", timeout=5))
+                except Exception:
+                    pass
+            raise
+        except Exception as e:
+            log.info("lost the swarm mid-request (%s)", e)
+            bus.publish("notice", text="Lost contact with the swarm.")
+            return "I lost contact with the swarm."
+        result = format_job(job)
+        bus.publish("result", text=result)
+        said = short_for_speech(result, 320)
+        if said and self.ctx.speaker and cfg.get("tts.enabled", True):
+            async def one():
+                yield said
+            await self.ctx.speaker.speak_many(one(), show=True)                              # the one final answer
+        return result
+
     # ---- one utterance ----
     async def respond(self, text: str) -> str:
+        if self.swarm_on() and (done := await self._swarm_turn(text)) is not None:
+            return done
         # Small unambiguous browser commands ("scroll down", "go back", "pause", "switch to my linkedin tab") skip the model entirely.
         if self.ctx.config.get("agent.instant_browser", True) and (cmd := match_instant(text)) is not None:
             if (done := await self._instant_browser(cmd, text)) is not None:
