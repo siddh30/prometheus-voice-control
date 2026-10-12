@@ -4,6 +4,9 @@ import Foundation
 /// Dock icon starts and stops everything. The project root is baked into the bundle at build time.
 final class DaemonSupervisor {
     private let root: URL
+    let profile: String                        // stable (Voice Control) | swarm (Prometheus Swarm) | dev
+    /// Where this app's daemon listens (the ports are in config.yaml / config.swarm.yaml; a test keeps them equal).
+    var wsURL: URL { URL(string: profile == "swarm" ? "ws://127.0.0.1:8767" : "ws://127.0.0.1:8765")! }
     private let dataDir: URL                   // where logs and memory live: per profile, never inside a release folder
     private let phoenixDir: URL
     private var daemon: Process?
@@ -15,7 +18,7 @@ final class DaemonSupervisor {
         let baked = Bundle.main.resourcePath.flatMap { try? String(contentsOfFile: $0 + "/project_path", encoding: .utf8) }
         guard let path = (env ?? baked)?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
         root = URL(fileURLWithPath: path)
-        let profile = (try? String(contentsOf: root.appendingPathComponent("profile.txt"), encoding: .utf8))?
+        profile = (try? String(contentsOf: root.appendingPathComponent("profile.txt"), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? "dev"
         let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         let support = base.appendingPathComponent(profile == "swarm" ? "PrometheusSwarm" : "VoiceControl")

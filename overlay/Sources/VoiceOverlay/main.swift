@@ -40,10 +40,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var typingWatch: AnyCancellable?
     var bag = Set<AnyCancellable>()
 
+    /// Voice Control and Prometheus Swarm both own F9 and F10, so only one may run at a time.
+    private func otherAppIsOpen() -> String? {
+        let mine = Bundle.main.bundleIdentifier ?? ""
+        guard !mine.isEmpty else { return nil }                                   // a command-line dev run has no identity: never blocked
+        let apps = ["com.siddharth.voicecontrol": "Voice Control", "com.siddharth.prometheusswarm": "Prometheus Swarm"]
+        return NSWorkspace.shared.runningApplications.compactMap { app in
+            guard let id = app.bundleIdentifier, id != mine, let name = apps[id] else { return nil }
+            return name
+        }.first
+    }
+
     func applicationDidFinishLaunching(_ n: Notification) {
+        if let other = otherAppIsOpen() {
+            let alert = NSAlert()
+            alert.messageText = "\(other) is already open"
+            alert.informativeText = "Both apps use F9 and F10, so only one can run at a time. Quit \(other) first, then open this one again."
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
         supervisor = DaemonSupervisor()
         supervisor?.start()
-        let host = ProcessInfo.processInfo.environment["VOICECTL_WS"] ?? "ws://127.0.0.1:8765"
+        let host = ProcessInfo.processInfo.environment["VOICECTL_WS"] ?? supervisor?.wsURL.absoluteString ?? "ws://127.0.0.1:8765"
         socket = DaemonSocket(url: URL(string: host)!, model: model)
         hotkeys.send = { [weak self] msg in self?.socket.send(msg) }
         hotkeys.isRecording = { MainActor.assumeIsolated { [weak self] in

@@ -7,5 +7,8 @@ hotkeys:
   swarm: f10             # press to record, press again to send: the same push-to-talk as single mode
 swarm:
   enabled: true
+  worker:                 # used by scripts/swarm_worker.sh on a computer that only does work for the swarm
+    host: 0.0.0.0         # listen on the home network (every connection must still present SWARM_TOKEN)
+    port: 8781
 telemetry:
   project: voicectl-swarm

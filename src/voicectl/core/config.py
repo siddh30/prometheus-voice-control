@@ -55,8 +55,13 @@ def load_config(path: Path | None = None) -> Config:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     path = path or ROOT / "config.yaml"
     raw = yaml.safe_load(path.read_text()) or {}
-    for layer in (f"config.{PROFILE}.yaml", "config.local.yaml"):      # the profile, then this machine's own settings (git-ignored)
-        overlay = path.with_name(layer)
+    # the profile, then this machine's own settings: next to the code (git-ignored) and, for an installed app, in its support
+    # folder, which survives every release (so you can edit your list of computers without releasing)
+    layers = [path.with_name(f"config.{PROFILE}.yaml"), path.with_name("config.local.yaml")]
+    installed = {"stable": APP_SUPPORT, "swarm": SWARM_SUPPORT}.get(PROFILE)
+    if installed:
+        layers.append(installed / "config.local.yaml")
+    for overlay in layers:
         if overlay.exists():
             raw = _merge(raw, yaml.safe_load(overlay.read_text()) or {})
     return Config(raw)

@@ -45,3 +45,17 @@ def test_the_swarm_mode_reaches_the_swarm_only_through_the_shared_controller():
 def test_every_swarm_command_and_event_the_widget_can_trigger_is_in_the_front_end_contract():
     from voicectl.api import COMMANDS, EVENTS
     assert "swarm_pick" in COMMANDS and "swarm" in EVENTS
+
+
+def test_each_app_widget_connects_to_its_own_daemons_port():
+    """The Swift side hard-codes the two ports; they must be the ones the daemon configs use, or the swarm widget talks to Voice Control."""
+    import yaml
+    swift = pathlib.Path("overlay/Sources/VoiceOverlay/Daemon.swift").read_text()
+    stable = yaml.safe_load(pathlib.Path("config.yaml").read_text())["ui"]["ws_port"]
+    swarm = yaml.safe_load(pathlib.Path("config.swarm.yaml").read_text())["ui"]["ws_port"]
+    assert f"ws://127.0.0.1:{swarm}" in swift and f"ws://127.0.0.1:{stable}" in swift and swarm != stable
+
+
+def test_the_two_apps_refuse_to_run_together_because_they_share_the_keys():
+    swift = pathlib.Path("overlay/Sources/VoiceOverlay/main.swift").read_text()
+    assert "com.siddharth.voicecontrol" in swift and "com.siddharth.prometheusswarm" in swift and "is already open" in swift

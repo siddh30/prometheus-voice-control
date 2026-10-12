@@ -195,6 +195,31 @@ Then:
 | "What have you learned?" | Lists them. |
 | "Text only" / "speak to me" | Switches between spoken and silent replies (handy on speakers). |
 
+## Swarm: more than one computer
+
+**Prometheus Swarm** is a separate app (its own name, data and port; it cannot run at the same time as Voice Control, because both
+use F9 and F10). It is the same push-to-talk assistant, but every request is sent to the right one of your computers. You press F10,
+talk, press F10 again; the widget shows a map of your computers and a box with each one's checklist and result.
+
+- **Say where, or don't.** "Open Gmail on the MacBook", "check my calendar on both", "play it on the other computer". With no hint the
+  request runs on the computer you are speaking on. Tap a computer on the map to send everything there; tap AUTO to let it decide.
+- **A silent computer is reported, not hidden.** A task that goes quiet shows as stalled; a computer that stops answering shows as
+  not responding or offline, while the animation keeps running.
+- **Set it up once:**
+  1. Put the same `SWARM_TOKEN=<a long random secret>` in `.env` on every computer.
+  2. Release the app on your main computer: `APP_NAME="Prometheus Swarm" PROFILE_NAME=swarm scripts/release.sh "swarm"`.
+  3. List the other computers in `~/Library/Application Support/PrometheusSwarm/config.local.yaml`:
+     ```yaml
+     swarm:
+       name: Studio                       # this computer
+       pcs:
+         - {name: MacBook, host: 192.168.1.20, port: 8781, aliases: [laptop]}
+     ```
+  4. On each other computer, run `scripts/swarm_worker.sh install` (it runs in the background and starts at login).
+
+Workers only accept connections that present your token, and they listen on your home network only if you install them that way.
+Details and diagrams are in `DESIGN.md`.
+
 ## Configuration
 
 Everything is in `config.yaml` (hotkeys, models, voice, speed, pause length, memory limits, browser backend). Common tweaks:
