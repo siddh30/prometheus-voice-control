@@ -1,12 +1,8 @@
 """Thumbs up / down become knowledge: a similar request later is told what the user liked and what they did not."""
-import asyncio
 
-from voicectl import llm
 from voicectl.core.events import EventBus
 from voicectl.core.feedback import FeedbackLog
 from voicectl.core.learnings import LearningStore
-from voicectl.llm import ToolCall
-from voicectl.swarm.router import PC, Router
 
 GOAL = "open my linkedin profile and read the headline"
 
@@ -64,15 +60,3 @@ def test_a_failing_learner_never_loses_the_rating(tmp_path):
     f = FeedbackLog(EventBus(), tmp_path / "feedback.jsonl", learn=broken)
     f.observe("transcript", {"text": GOAL, "mode": "prometheus"})
     assert f.record("up") is True and len(f.entries()) == 1
-
-
-def test_the_swarm_router_is_told_what_the_user_said_about_similar_runs(monkeypatch):
-    seen = {}
-    class Fake:
-        def tool_calls(self, **kw):
-            seen["system"] = kw["system"]
-            return [ToolCall("assign", {"assignments": [{"pc": "Studio", "task": "a b"}]})]
-    monkeypatch.setattr(llm, "current", lambda: Fake())
-    pcs = [PC("Studio", local=True), PC("MacBook")]
-    asyncio.run(Router(pcs).route("open gmail and play music", hint="- the user liked it when music ran on the Studio"))
-    assert "liked it when music ran on the Studio" in seen["system"]

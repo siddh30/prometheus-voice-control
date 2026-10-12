@@ -127,3 +127,15 @@ def test_two_computers_never_get_the_same_job_unless_you_said_both(monkeypatch):
     r = route("open gmail and play music")
     assert pairs(r) == [("Studio", "open gmail"), ("Mac mini", "play music")]
     assert len(route("open gmail on both").assignments) == 3                   # an explicit "both" still means both
+
+
+def test_the_swarm_router_is_told_what_the_user_said_about_similar_runs(monkeypatch):
+    seen = {}
+    class Fake:
+        def tool_calls(self, **kw):
+            seen["system"] = kw["system"]
+            return [ToolCall("assign", {"assignments": [{"pc": "Studio", "task": "a b"}]})]
+    monkeypatch.setattr(llm, "current", lambda: Fake())
+    pcs = [PC("Studio", local=True), PC("MacBook")]
+    __import__('asyncio').run(Router(pcs).route("open gmail and play music", hint="- the user liked it when music ran on the Studio"))
+    assert "liked it when music ran on the Studio" in seen["system"]
