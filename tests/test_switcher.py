@@ -49,7 +49,11 @@ def test_the_switcher_is_a_separate_menu_bar_app_that_never_force_quits():
     assert 'name: "PrometheusSwitch"' in package and 'name: "VoiceOverlay"' in package
     code = (SRC / "main.swift").read_text()
     assert "forceTerminate" not in code and ".terminate()" in code             # a graceful quit only: a kill could orphan the voice daemon
-    assert "keyboardEventKeycode) == 111" in code                              # F12
+    assert "keyboardEventKeycode) == 111" in code and "tapCreate" in code     # F12 works anywhere while the app runs
+    assert "event.keyCode == 111" in code and "self.model.expanded" in code   # ...and while the card is open, even before the permissions are granted
+    assert "beginActivity" in code                                            # a window-less app must not be put to sleep by macOS (App Nap)
+    assert "NSPopover" not in code and "WidgetPanel" in code                  # a floating card extending from the icon, not a popover
     installer = pathlib.Path("scripts/build_switcher.sh").read_text()
     assert "LSUIElement" in installer and "com.siddharth.prometheusswitch" in installer
+    assert "Accessibility" in installer and "Monitoring" in installer             # the one-time permissions are explained
     assert re.search(r"already open", pathlib.Path("overlay/Sources/VoiceOverlay/main.swift").read_text())

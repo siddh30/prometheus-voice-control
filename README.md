@@ -222,10 +222,11 @@ Details and diagrams are in `DESIGN.md`.
 
 ## Switching between Voice Control and Prometheus Swarm
 
-The two apps both use F9 and F10, so only one can run at a time. **Prometheus Switch** is a small menu-bar app that swaps them: press
-**F12** and it quits whichever is running, waits until it has really exited, and opens the other. If neither is running, F12 opens the
-one you used last. Install it once with `scripts/build_switcher.sh`, then open it (its menu has "Open at login"). It never force-quits an
-app; if one won't quit it tells you which.
+The two apps both use F9 and F10, so only one can run at a time. **Prometheus Switch** is a small app that swaps them. As long as it is
+running (its icon is in the menu bar, and says which app is active), press **F12** anywhere: it quits the running app, waits until it has
+really exited, and opens the other. You can also click the icon: a floating card extends down from it with both apps and a Switch
+button. It never force-quits an app; if one won't quit it tells you. Install it once with `scripts/build_switcher.sh`; the first time,
+macOS asks for Accessibility and Input Monitoring (needed to see F12 everywhere). The card has "Open at login".
 
 ## Configuration
 

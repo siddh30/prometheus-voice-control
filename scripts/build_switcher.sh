@@ -1,7 +1,8 @@
 #!/bin/sh
-# Builds and installs "Prometheus Switch.app" (~/Applications): a menu-bar app, no Dock icon, with one job. F12 quits whichever of
-# Voice Control / Prometheus Swarm is running and opens the other. It has no daemon and needs no release: run this once (again after
-# changing its code). It asks for the same two permissions as the other apps (Accessibility and Input Monitoring) the first time.
+# Builds and installs "Prometheus Switch.app" (~/Applications): a menu-bar app, no Dock icon, with one job. While it is running, F12
+# (anywhere) or the button on its card quits whichever of Voice Control / Prometheus Swarm is running and opens the other. It has no
+# daemon and needs no release: run this once (again after changing its code). The first time, macOS asks for Accessibility and Input
+# Monitoring (for the F12 key); until you allow them, F12 still works while the card is open.
 set -e
 cd "$(dirname "$0")/.."
 APP="$HOME/Applications/Prometheus Switch.app"
@@ -39,7 +40,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-# the same stable local certificate as the other apps, so macOS keeps the permissions you grant across rebuilds
+# the same stable local certificate as the other apps
 ID="Voice Control Local Signing"
 if security find-identity -p codesigning | grep -q "$ID"; then
   codesign --force --deep --sign "$ID" "$APP" 2>&1 | tail -1

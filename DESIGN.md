@@ -269,7 +269,8 @@ fake in a test) and nothing else changes. A guard test per row fails if code rea
 | `SwarmMap`, `SwarmOrb` | `SwarmView.swift` | You in the middle, your computers around you; dashed links flow while one works; tap to pick, AUTO to let the router decide |
 | `SwarmBox` | `SwarmView.swift` | The black box: per computer, its ticks, step and result. No separate final answer |
 | `Mode`, `plan(running:last:)` | `Plan.swift` | Prometheus Switch: the two apps by bundle id, and what one press of F12 does (a pure, tested function) |
-| `Switcher` | `PrometheusSwitch/main.swift` | The menu-bar app: the F12 key tap, quit-wait-open, the menu. It never force-quits |
+| `Switcher` | `PrometheusSwitch/main.swift` | The F12 key tap, the card's window, the menu-bar icon, quit-wait-open. It never force-quits |
+| `SwitchWidget`, `SwitchCard` | `Widget.swift` | The floating card with both apps (nothing is on screen when it is closed) |
 
 ## Pathways
 
@@ -445,19 +446,29 @@ work. Worker side: a controller that disconnects takes its tasks with it.
 
 ```mermaid
 flowchart LR
-    F12["F12<br/>(swallowed, so macOS does not also use it as volume)"] --> PLAN{"plan(running, last)"}
+    F12["F12, anywhere<br/>(while the Switch app is running)"] --> PLAN{"plan(running, last)"}
+    ICON["menu-bar icon<br/>shows Single or Swarm"] -- "click" --> CARD["floating card, extending down from the icon<br/>both apps, which one is running"]
+    CARD --> BTN["Switch button<br/>(or F12 while the card is open)"]
+    BTN --> PLAN
     PLAN -- "one app running" --> QUIT["quit it, gracefully<br/>(its voice daemon stops with it)"]
     QUIT --> WAIT{"gone within 12 s?"}
     WAIT -- no --> TELL["say which app didn't quit<br/>never force-quit"]
-    WAIT -- yes --> OPEN["open the other app"]
+    WAIT -- yes --> LAUNCH["open the other app"]
     PLAN -- "nothing running" --> LAST["open the one used last<br/>(single mode the first time)"]
-    MENU["menu-bar item<br/>Switch now, Open Voice Control, Open Prometheus Swarm,<br/>Open at login"] --> PLAN
+    PLAN --> SHOW["the card extends down from the icon to show progress"]
+    LAUNCH --> GONE["the card disappears"]
 ```
 
-Voice Control and Prometheus Swarm both own F9 and F10, so only one can run at a time (each refuses to open while the other is
-running). Prometheus Switch is a third, tiny menu-bar app that swaps them: it has no daemon and no window, only the F12 key and a
-menu. The decision is a pure function in `Plan.swift`, compiled and tested on its own. Install it once with
-`scripts/build_switcher.sh`; it asks for the same Accessibility and Input Monitoring permissions as the other apps.
+Voice Control and Prometheus Swarm both own F9 and F10, so only one can run at a time (the swarm app refuses to open while the other
+is running). Prometheus Switch is a third, tiny app that swaps them. **As long as the Switch app is running, F12 works anywhere**: it
+is a keyboard event tap (swallowed, so macOS does not also use F12 as volume-up), kept alive against App Nap and re-enabled if macOS
+switches it off. It needs the one-time Accessibility and Input Monitoring permissions; until they are granted, F12 still works while the
+card is open, and the card says so. Normally the only thing of the app on screen is its menu-bar icon, which says which app is running.
+Click it (or open the app) and a **floating card extends down from the icon** with both apps and a Switch button, in the same dark look
+as the Voice Control widget. The card also opens by itself while a switch is happening, and disappears afterwards, after 12 seconds, or
+when you click elsewhere. Every key press, click, decision and outcome is written to `~/Library/Logs/PrometheusSwitch.log`, and
+`PrometheusSwitch --now [single|swarm]` performs one switch with no window (it is how the app is tested). The decision is a pure
+function in `Plan.swift`, compiled and tested on its own. Install it once with `scripts/build_switcher.sh`.
 
 ### Releases and profiles
 
