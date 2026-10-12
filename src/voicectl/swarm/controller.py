@@ -73,7 +73,8 @@ class SwarmController:
     async def run(self, text: str, context: str = "") -> str:
         await self.cancel_all()                              # a new request replaces whatever was running
         online = {n for n, link in self.links.items() if link.state is LinkState.ONLINE}
-        routed = await self.router.route(text, self.board.picked, online)
+        hint = context.split("<PastRuns>")[1].split("</PastRuns>")[0].strip() if "<PastRuns>" in context else ""     # the user's thumbs on similar runs
+        routed = await self.router.route(text, self.board.picked, online, hint=hint)
         self.board.set_routing(routed.how)
         involved = {a.pc for a in routed.assignments}
         for name, state in list(self.board.pcs.items()):                         # last request's cards must not linger: it looks like they did this one too

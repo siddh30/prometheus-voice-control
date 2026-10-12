@@ -551,6 +551,9 @@ class AgentRunner:
             routes = self.learnings.relevant_routes(text, site)            # a similar task got there by this route (this or an earlier conversation)
             if routes:
                 hints = (hints + "\n" if hints else "") + "<Routes>\n" + "\n".join(f"- {r}" for r in routes) + "\n</Routes>"
+            past = [] if "<PastRuns>" in (context or "") else self.learnings.relevant_outcomes(text)      # the user's thumbs on similar runs (the swarm sends these in the context)
+            if past:
+                hints = (hints + "\n" if hints else "") + "<PastRuns>\n" + "\n".join(f"- {p}" for p in past) + "\n</PastRuns>"
             if (dead := self._dead_end_lines(site)):                       # what already failed in THIS conversation
                 hints = (hints + "\n" if hints else "") + "<EarlierInThisConversation>\n" + "\n".join(f"- {d}" for d in dead) + "\n</EarlierInThisConversation>"
             if context or hints:      # context: what was just said / done elsewhere; hints: how much planning to show

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from voicectl.core.learnings import LearningStore
+from voicectl.core.memory import shared_memory
 from voicectl.modes.base import modes
 from voicectl.modes.conversation import ConversationMode
 from voicectl.modes.router import parse_yes_no
@@ -27,9 +29,22 @@ class SwarmMode(ConversationMode):
         controller = self._controller()
         watcher = asyncio.create_task(self._announce_approvals(controller))
         try:
-            return await controller.run(text, self._recent())
+            return await controller.run(text, self._recent_with_outcomes(text))
         finally:
             watcher.cancel()
+
+    def _recent_with_outcomes(self, text: str) -> str:
+        """The recent exchanges plus what the user said about similar runs (thumbs), so every computer's agent follows it."""
+        recent = self._recent()
+        try:
+            past = LearningStore.beside(shared_memory(self.ctx.shared)).relevant_outcomes(text)
+        except Exception:
+            log.debug("could not read past outcomes", exc_info=True)
+            past = []
+        if not past:
+            return recent
+        return f"{recent}\n<PastRuns>\n" + "\n".join(f"- {p}" for p in past) + "\n</PastRuns>" if recent else \
+               "<PastRuns>\n" + "\n".join(f"- {p}" for p in past) + "\n</PastRuns>"
 
     def _recent(self) -> str:
         """The last few exchanges, so "now do the same on the other one" makes sense to whichever computer gets it."""

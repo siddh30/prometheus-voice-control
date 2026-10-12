@@ -167,6 +167,7 @@ widget builds commands only through `Command` in `Protocol.swift`, and a test fa
 | `key` | `name`, `down` | A hotkey seen by the app (F9 / F10 / Esc). The app owns the macOS permissions. |
 | `approval` | `approved` | The answer to an approval question (Approve / Deny buttons). |
 | `swarm_pick` | `pc` | Send requests to this computer; `auto` lets the router decide (swarm app only). |
+| `feedback` | `rating`, `note`? | Thumbs `up` / `down` on the latest run, with an optional note. Saved, and later runs learn from it (every mode). |
 | `input_result` | `id` | The app's answer to an `input_request`: a screenshot, or a click / key press done. |
 
 ### Daemon to front end: events
@@ -199,6 +200,7 @@ widget handles. (`?` marks an optional field, which may also be empty.)
 | `input_request` | `id`, `op` | The agent asks the app to look at or act on the screen. |
 | `paste` | `text` | Dictation text for the app to paste at the cursor. |
 | `swarm` | `pcs`, `picked`?, `routing`? | Every computer in the swarm: its state (idle, working, waiting, stalled, not responding, offline, done, failed), checklist, step, result (swarm app only). |
+| `feedback` | `rating`, `saved` | Your thumbs were saved (or could not be). |
 
 ### Swarm: controller to worker
 
@@ -480,6 +482,25 @@ flowchart LR
     APPB --> CUR["current link"]
     CUR -. "roll back: re-point the link" .-> OLD["older snapshot"]
 ```
+
+### Thumbs up / down: learning what works
+
+Every mode shows two thumbs when a run has finished. Thumbs up is saved at once; thumbs down opens a note box ("what went wrong?") that can be skipped.
+The daemon already follows the run through the same events the widget gets, so a rating is stored with the request, the steps, the result and (in the swarm) which computer did what.
+
+```mermaid
+flowchart LR
+    UI["widget: thumbs + note"] -- "feedback" --> CTRL["Control"]
+    CTRL --> LOG["FeedbackLog<br/>feedback.jsonl: the whole run + rating"]
+    LOG --> STORE["LearningStore.outcomes<br/>goal, rating, note, how"]
+    LOG -- "feedback event: saved" --> UI
+    STORE -- "similar request: PastRuns" --> AGENT["agent prompt<br/>(single mode, every swarm worker)"]
+    STORE -- "similar request: PastRuns" --> ROUTER["swarm router<br/>(when it asks the model)"]
+```
+
+A similar goal rated the same way strengthens the old entry; rated the other way, the newest verdict replaces it. A later request that looks like a rated one
+gets `<PastRuns>`: where you were happy, do it that way again; where you were not, do not repeat it and try another approach. In the swarm the controller adds
+the same lines to the context it sends, so a worker on another computer follows them too. Owns it: `core/feedback.py`, `core/learnings.py` (outcomes).
 
 ## A Prometheus turn
 

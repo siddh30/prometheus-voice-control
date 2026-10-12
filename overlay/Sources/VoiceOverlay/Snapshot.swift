@@ -4,6 +4,7 @@ import AppKit
 /// `VoiceOverlay --snapshot <dir>` renders each state to a PNG for design review (no screen-recording permission needed).
 @MainActor
 func renderSnapshots(to dir: String) {
+    snapshotFlat = true
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     func shot(_ name: String, _ setup: (OverlayModel) -> Void) {
         let m = OverlayModel()
@@ -73,6 +74,17 @@ func renderSnapshots(to dir: String) {
             pc("Studio", local: true, state: "done", task: "check my calendar", checklist: [["text": "Open Calendar", "status": "done"]], result: "Two meetings today: 10:00 standup, 15:30 review."),
             pc("MacBook", state: "done", task: "check my calendar", checklist: [["text": "Open Calendar", "status": "done"]], result: "Same two meetings."),
             pc("Mac mini", state: "offline", detail: "can't reach 192.168.1.30:8781")]])
+    }
+    shot("25_swarm_long_rated") {                                  // a long quote and two finished computers: it must fit, scroll, and offer thumbs
+        $0.phase = .idle; $0.mode = "swarm"
+        $0.transcript = "Okay, now on Macbook, can you check my profile and see what my profile looks like and based on that, on this Mac mini, open another LinkedIn tab which can tell me the best jobs for me. Also you may want to open another tab on this Mac mini which will also tell me all posts regarding any positions for my particular profile."
+        $0.swarm = SwarmBoard(["picked": "auto", "routing": "split", "pcs": [
+            pc("Mac mini", local: true, state: "done", task: "Open another tab to find all posts regarding positions for your particular profile",
+               checklist: [["text": "Open new LinkedIn tab", "status": "done"], ["text": "Search posts for VP AI/ML job openings", "status": "done"], ["text": "Read and surface the best post results", "status": "done"]],
+               result: "The posts tab is open and already showing great results. The two top posts are VP-level AI roles in New York, both posted this week."),
+            pc("MacBook", state: "done", task: "Check your profile and see what your profile looks like",
+               result: "Your profile looks great. You're listed as VP, Applied AI/ML Lead in the New York City area with 1,766 followers and 500-plus connections. Your about section highlights five-plus years of experience building and shipping machine learning products.")]])
+        $0.rating = "down"; $0.rateOpen = true
     }
     shot("22_swarm_pick") {
         $0.phase = .idle; $0.mode = "swarm"; $0.mapOpen = true

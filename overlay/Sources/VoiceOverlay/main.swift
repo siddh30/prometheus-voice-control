@@ -91,8 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.contentView = hosting
-        typingWatch = model.$typing.sink { [weak self] on in
-            guard let self = self else { return }
+        typingWatch = Publishers.CombineLatest(model.$typing, model.$rateOpen).map { $0 || $1 }.removeDuplicates().sink { [weak self] on in
+            guard let self = self else { return }          // the type box and the thumbs-down note box both need the keyboard
             self.panel.allowKey = on
             if on { self.panel.makeKey() } else { self.panel.resignKey() }
         }

@@ -32,6 +32,9 @@ class LearningStore:
             CREATE TABLE IF NOT EXISTS routes(
                 id INTEGER PRIMARY KEY, host TEXT, goal TEXT, words TEXT, failed TEXT, worked TEXT,
                 hits INTEGER DEFAULT 1, created REAL, last_used REAL);
+            CREATE TABLE IF NOT EXISTS outcomes(
+                id INTEGER PRIMARY KEY, goal TEXT, words TEXT, rating TEXT, note TEXT, how TEXT, mode TEXT,
+                hits INTEGER DEFAULT 1, created REAL, last_used REAL);
         """)
         self.db.commit()
 
@@ -41,7 +44,7 @@ class LearningStore:
         return cls(Path(memory.path).with_name("learnings.db"))
 
     def clear(self) -> None:
-        self.db.executescript("DELETE FROM learnings; DELETE FROM actions; DELETE FROM routes;")
+        self.db.executescript("DELETE FROM learnings; DELETE FROM actions; DELETE FROM routes; DELETE FROM outcomes;")
         self.db.commit()
 
     # --- learnings: lessons from experience ("on LinkedIn, filter posts via the search URL, not the filter button") ---
@@ -157,6 +160,68 @@ class LearningStore:
             self.db.executemany("UPDATE routes SET last_used = ?, hits = hits + 1 WHERE id = ?", used)
             self.db.commit()
         return out
+
+    # --- outcomes: the user's thumbs up / down on whole runs ("this went well, done this way" / "this went badly, and why") ---
+    def record_outcome(self, goal: str, rating: str, note: str = "", how: str = "", mode: str = "") -> bool:
+        """A rated run. A similar goal rated the same way strengthens the old entry; rated the other way, the newest verdict replaces it
+        (people change their minds, and the latest judgement is the one to follow). True if a new entry was added."""
+        goal, note, how = re.sub(r"\s+", " ", goal.strip())[:140], note.strip()[:240], how.strip()[:400]
+        words = self._goal_words(goal)
+        if rating not in ("up", "down") or len(words) < 2:
+            return False
+        now = time.time()
+        for oid, owords, orating in self.db.execute("SELECT id, words, rating FROM outcomes").fetchall():
+            old = set(owords.split())
+            if len(words & old) / len(words | old) < 0.6:
+                continue
+            if orating == rating:
+                self.db.execute("UPDATE outcomes SET hits = hits + 1, last_used = ?, note = CASE WHEN ? != '' THEN ? ELSE note END, "
+                                "how = CASE WHEN ? != '' THEN ? ELSE how END WHERE id = ?", (now, note, note, how, how, oid))
+                self.db.commit()
+                return False
+            self.db.execute("DELETE FROM outcomes WHERE id = ?", (oid,))
+        self.db.execute("INSERT INTO outcomes(goal, words, rating, note, how, mode, hits, created, last_used) VALUES(?,?,?,?,?,?,1,?,?)",
+                        (goal, " ".join(sorted(words)), rating, note, how, mode, now, now))
+        self.db.commit()
+        return True
+
+    def relevant_outcomes(self, text: str, n: int = 3) -> list[str]:
+        """What the user said about similar runs before, as short instructions: repeat what they liked, avoid what they didn't."""
+        words = self._goal_words(text)
+        if not words:
+            return []
+        scored = []
+        for oid, goal, owords, rating, note, how, hits in self.db.execute("SELECT id, goal, words, rating, note, how, hits FROM outcomes").fetchall():
+            old = set(owords.split())
+            shared, jaccard = len(words & old), len(words & old) / len(words | old)
+            if shared >= 2 and jaccard >= 0.34:
+                scored.append((jaccard + min(hits, 5) * 0.03 + (0.05 if rating == "down" else 0), oid, goal, rating, note, how))
+        scored.sort(reverse=True)
+        out, used = [], []
+        for _, oid, goal, rating, note, how in scored[:n]:
+            if rating == "up":
+                out.append(f"The user was happy with a similar task, \"{goal}\"{f': {how}' if how else ''}. Do it that way again.")
+            else:
+                out.append(f"The user was NOT happy with a similar task, \"{goal}\"{f': {how}' if how else ''}."
+                           f"{f' They said: {note}.' if note else ''} Do not repeat that; try a different approach.")
+            used.append((time.time(), oid))
+        if used:
+            self.db.executemany("UPDATE outcomes SET last_used = ?, hits = hits + 1 WHERE id = ?", used)
+            self.db.commit()
+        return out
+
+    def outcome_counts(self) -> dict[str, int]:
+        return dict(self.db.execute("SELECT rating, COUNT(*) FROM outcomes GROUP BY rating").fetchall())
+
+    def prune_outcomes(self, max_n: int) -> int:
+        rows = self.db.execute("SELECT id, hits, last_used FROM outcomes").fetchall()
+        if len(rows) <= max_n:
+            return 0
+        now = time.time()
+        drop = sorted(rows, key=lambda r: r[1] * 0.5 ** ((now - r[2]) / (60 * 86400)))[: len(rows) - max_n]
+        self.db.executemany("DELETE FROM outcomes WHERE id = ?", [(r[0],) for r in drop])
+        self.db.commit()
+        return len(drop)
 
     def routes(self, limit: int = 30) -> list[tuple[int, str, str]]:
         return self.db.execute("SELECT id, host, goal FROM routes ORDER BY hits DESC, last_used DESC LIMIT ?", (limit,)).fetchall()

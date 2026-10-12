@@ -3,7 +3,7 @@ import Foundation
 /// Everything the widget can say to the daemon, in one place. The names are the daemon's command names
 /// (voicectl/api/protocol.py); a Python test fails if the two lists ever differ.
 enum CommandName: String, CaseIterable {
-    case text, input_mode, voice, newchat, fresh, maintenance, key, approval, input_result, swarm_pick
+    case text, input_mode, voice, newchat, fresh, maintenance, key, approval, input_result, swarm_pick, feedback
 }
 
 enum Command {
@@ -17,6 +17,7 @@ enum Command {
     case approval(Bool)
     case inputResult(id: String, fields: [String: Any])
     case swarmPick(String)
+    case feedback(rating: String, note: String)
 
     var payload: [String: Any] {
         switch self {
@@ -28,6 +29,7 @@ enum Command {
         case .maintenance: return ["type": CommandName.maintenance.rawValue]
         case .key(let name, let down): return ["type": CommandName.key.rawValue, "name": name, "down": down]
         case .approval(let ok): return ["type": CommandName.approval.rawValue, "approved": ok]
+        case .feedback(let rating, let note): return ["type": CommandName.feedback.rawValue, "rating": rating, "note": note]
         case .swarmPick(let pc): return ["type": CommandName.swarm_pick.rawValue, "pc": pc]
         case .inputResult(let id, let fields):
             return fields.merging(["type": CommandName.input_result.rawValue, "id": id]) { _, new in new }

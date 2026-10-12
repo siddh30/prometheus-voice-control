@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 from voicectl.core.config import load_config
 from voicectl.core.events import EventBus
+from voicectl.core.feedback import FeedbackLog
+from voicectl.core.learnings import LearningStore
 from voicectl.core.maintenance import Maintenance
 from voicectl.core.memory import shared_memory
 from voicectl.core.session import SessionManager, State
@@ -89,6 +92,12 @@ async def run() -> None:
         log.info("%s", await maint.new_conversation(forget_conversation))
 
     control.on("voice", lambda cmd: speaker.set_voice(cmd["on"]))
+
+    outcomes = LearningStore.beside(shared_memory(ctx.shared))           # what the thumbs teach: followed by every later run, in every mode
+    feedback = FeedbackLog(bus, Path(shared_memory(ctx.shared).path).with_name("feedback.jsonl"),    # thumbs up / down, every mode
+                           learn=lambda e: outcomes.record_outcome(e["request"], e["rating"], e["note"], FeedbackLog.how(e), e.get("mode", "")))
+    feedback.start()
+    control.on("feedback", lambda cmd: bus.publish("feedback", rating=cmd["rating"], saved=feedback.record(cmd["rating"], cmd.get("note", ""))))
 
     hotkey_map = {m: k for m in mode_objs if (k := config.get(f"hotkeys.{m}"))}
     cancel_key = config.get("hotkeys.cancel", "esc")

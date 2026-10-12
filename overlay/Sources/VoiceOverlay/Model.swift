@@ -73,6 +73,9 @@ final class OverlayModel: ObservableObject {
     @Published var jobActive = false          // the agent is working in the background while we keep talking
     @Published var jobText = ""
     @Published var route: String? = nil       // assistant decision: action | agent | chat
+    @Published var rating: String? = nil      // your thumbs on the run on screen: up | down
+    @Published var rateOpen = false           // thumbs down: the note box is open
+    @Published var ratingSaved: Bool? = nil   // the daemon's answer: saved or not
     @Published var needsPermission = false     // hotkeys can't be captured yet
 
     private var clearTask: Task<Void, Never>?
@@ -104,6 +107,26 @@ final class OverlayModel: ObservableObject {
         guard let b = swarm else { return false }
         return mapOpen || b.anyBusy || (!swarmCleared && b.anyInBox) || (conversational && phase != .idle && mode == "swarm")
     }
+    /// A finished run you can rate: something was asked, something came back, and nothing is still going on.
+    var canRate: Bool {
+        guard mode == "agent" || conversational, !transcript.isEmpty, approval == nil, !speaking, !jobActive, !(swarm?.anyBusy ?? false),
+              phase == .idle || phase == .done else { return false }
+        return !result.isEmpty || !checklist.isEmpty || !steps.isEmpty || (swarm?.anyInBox ?? false)
+    }
+
+    /// Thumbs up is sent at once. Thumbs down opens a note box first ("what went wrong?"), which can be skipped.
+    func rate(_ value: String) {
+        guard rating == nil || rateOpen else { return }
+        rating = value
+        if value == "down" { rateOpen = true; return }
+        send(.feedback(rating: value, note: ""))
+    }
+
+    func sendNote(_ note: String) {
+        rateOpen = false
+        send(.feedback(rating: rating ?? "down", note: note))
+    }
+
     var swarmBoxVisible: Bool { (swarm?.anyBusy ?? false) || (!swarmCleared && (swarm?.anyInBox ?? false)) }
 
     func pickPC(_ name: String) {
@@ -184,6 +207,9 @@ final class OverlayModel: ObservableObject {
                 result = ""; approval = nil; route = nil
             }
             transcript = (data["text"] as? String) ?? ""
+            rating = nil; rateOpen = false; ratingSaved = nil          // a new request: a new run to rate
+        case "feedback":
+            ratingSaved = (data["saved"] as? Bool) ?? false
         case "notice":
             notice = (data["text"] as? String) ?? ""
             scheduleClear(after: 3)
@@ -304,6 +330,7 @@ final class OverlayModel: ObservableObject {
     private func resetRun() {
         clearTask?.cancel()
         transcript = ""; notice = ""; plan = []; steps = []; result = ""; approval = nil; route = nil; checklist = []
+        rating = nil; rateOpen = false; ratingSaved = nil
     }
 
     private func flashFor(_ p: Palette) {
@@ -326,12 +353,13 @@ final class OverlayModel: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             self.transcript = ""; self.notice = ""; self.plan = []; self.steps = []; self.result = ""; self.checklist = []
+            self.rating = nil; self.rateOpen = false; self.ratingSaved = nil
             self.swarmCleared = true; self.mapOpen = false                  // the swarm card shrinks with everything else
             self.phase = .idle
         }
     }
 
     private var canShrink: Bool {
-        (phase == .idle || phase == .done) && approval == nil && !speaking && !jobActive && !(swarm?.anyBusy ?? false)
+        (phase == .idle || phase == .done) && approval == nil && !rateOpen && !speaking && !jobActive && !(swarm?.anyBusy ?? false)
     }
 }

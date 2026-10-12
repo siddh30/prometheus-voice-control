@@ -38,7 +38,7 @@ class Assignment:
 @dataclass
 class Routed:
     assignments: list[Assignment] = field(default_factory=list)
-    how: str = "default"                    # picked | named | all | other | llm | default (shown on the widget, useful in logs)
+    how: str = "default"                    # picked | named | all | other | llm | split | default (shown on the widget, useful in logs)
 
 
 DEVICE = r"(?:computers?|pcs?|macs?|machines?|laptops?|devices?)"
@@ -86,7 +86,7 @@ class Router:
             pattern += rf"|\b(?:{LEAD})?(?:{here})\b"
         return re.compile(pattern, re.I)
 
-    async def route(self, text: str, picked: str | None = None, online: set[str] | None = None) -> Routed:
+    async def route(self, text: str, picked: str | None = None, online: set[str] | None = None, hint: str = "") -> Routed:
         online = {p.name for p in self.pcs} if online is None else online
         usable = [p for p in self.pcs if p.name in online]
         text = text.strip()
@@ -99,13 +99,13 @@ class Router:
             return Routed([Assignment(p.name, task) for p in usable or self.pcs], "all")
 
         if SPLIT.search(text) and len(usable) > 1:                                  # "on different computers": the request must be divided
-            asked = await self._ask_model(text, usable)
+            asked = await self._ask_model(text, usable, hint=hint)
             if asked.how == "llm":
                 return asked
 
         named, guessed = self._named_clauses(text)
         if named and guessed and len(usable) > 1:                                    # some parts name a computer and some do not: don't guess who gets those
-            asked = await self._ask_model(text, usable)
+            asked = await self._ask_model(text, usable, hint=hint)
             if asked.how == "llm":
                 return asked
         if named:
@@ -117,9 +117,33 @@ class Router:
             if len(others) == 1:
                 return Routed([Assignment(others[0].name, task)], "other")
             if len(others) > 1:
-                return await self._ask_model(text, usable)
+                return await self._ask_model(text, usable, hint=hint)
+
+        if len(usable) > 1 and self._multi_part(text):                               # several jobs, no computer named: spread them out
+            asked = await self._ask_model(text, usable, spread=True, hint=hint)
+            if asked.how == "llm":
+                return Routed(asked.assignments, "split")
 
         return Routed([Assignment(self.local.name, text)], "default")
+
+    @staticmethod
+    def _multi_part(text: str) -> bool:
+        """"open gmail and play music": two jobs. A single job never needs the model."""
+        return sum(1 for c in TASK_SPLIT.split(text) if len(c.split()) >= 2) >= 2
+
+    @staticmethod
+    def _unique(items: list[Assignment]) -> list[Assignment]:
+        """Never give two computers the same job: a repeat of an earlier part (on another computer) is dropped.
+        Only an explicit "both" / "on the MacBook and the mini" sends one job to two computers."""
+        out: list[Assignment] = []
+        seen: list[set[str]] = []
+        for a in items:
+            words = set(re.findall(r"[a-z0-9']+", a.task.lower()))
+            if any(len(words & w) / max(1, len(words | w)) >= 0.7 for w in seen):
+                continue
+            seen.append(words)
+            out.append(a)
+        return out
 
     def _named_clauses(self, text: str) -> tuple[list[Assignment], bool]:
         """"open Gmail on the MacBook and play music on the Mac mini" -> one task each. A clause naming two computers goes to both."""
@@ -158,13 +182,16 @@ class Router:
             guessed = True
         return out, guessed
 
-    async def _ask_model(self, text: str, usable: list[PC]) -> Routed:
+    async def _ask_model(self, text: str, usable: list[PC], spread: bool = False, hint: str = "") -> Routed:
         names = [p.name for p in usable]
         try:
             calls = await asyncio.wait_for(asyncio.to_thread(lambda: llm.current().tool_calls(
                 model=self.model, max_tokens=300, tools=[ASSIGN_TOOL], tool_choice={"type": "tool", "name": "assign"},
                 system=f"The user has these computers: {', '.join(names)} (the one they are speaking on is {self.local.name}). "
-                       "Assign every part of the request to a computer.",
+                       "Assign every part of the request to exactly one computer. Never give the same task to two computers. "
+                       "Parts that depend on each other (the second needs the first one's page, app or result) go to the same computer. "
+                       + (f"What the user said about similar earlier runs (follow it):\n{hint}\n" if hint else "")
+                       + ("Spread parts that are independent across the computers; keep a single job, or jobs that belong together, on one. " if spread else ""),
                 messages=[{"role": "user", "content": text}])), self.timeout_s)
         except Exception as e:
             log.info("router model unavailable (%s); using this computer", type(e).__name__)
@@ -175,4 +202,5 @@ class Router:
                 pc = self._find(str(item.get("pc", "")))
                 if pc and pc.name in names and str(item.get("task", "")).strip():
                     out.append(Assignment(pc.name, str(item["task"]).strip()))
+        out = self._unique(out)
         return Routed(out, "llm") if out else Routed([Assignment(self.local.name, text)], "default")

@@ -13,7 +13,14 @@ def route(text, pcs=PCS, **kw):
 def pairs(routed): return [(a.pc, a.task) for a in routed.assignments]
 
 
-def test_a_request_with_no_hint_stays_on_this_computer_without_asking_any_model():
+def test_a_single_job_with_no_hint_stays_on_this_computer_without_asking_any_model(monkeypatch):
+    monkeypatch.setattr(llm, "current", lambda: (_ for _ in ()).throw(AssertionError("no model call expected")))
+    r = route("open linkedin")
+    assert pairs(r) == [("Studio", "open linkedin")] and r.how == "default"
+
+
+def test_a_compound_job_with_no_hint_falls_back_to_this_computer_when_the_model_is_unavailable(monkeypatch):
+    monkeypatch.setattr(llm, "current", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
     r = route("open linkedin and search for product manager jobs")
     assert pairs(r) == [("Studio", "open linkedin and search for product manager jobs")] and r.how == "default"
 
@@ -100,3 +107,23 @@ def test_a_split_request_or_a_half_named_one_is_divided_by_the_model_not_guessed
     expect = [("Studio", "open obvious on youtube"), ("MacBook", "open my profile on linkedin")]
     assert pairs(route("open my profile on linkedin and obvious on youtube on different computers")) == expect
     assert pairs(route("open obvious on youtube and open my profile on linkedin on the macbook")) == expect
+
+
+def _fake(assignments, monkeypatch):
+    class Fake:
+        def tool_calls(self, **kw):
+            return [ToolCall("assign", {"assignments": assignments})]
+    monkeypatch.setattr(llm, "current", lambda: Fake())
+
+
+def test_independent_jobs_with_no_computer_named_are_spread_by_the_model(monkeypatch):
+    _fake([{"pc": "Studio", "task": "play lofi on youtube"}, {"pc": "MacBook", "task": "open gmail"}], monkeypatch)
+    r = route("play lofi on youtube and open gmail")
+    assert r.how == "split" and pairs(r) == [("Studio", "play lofi on youtube"), ("MacBook", "open gmail")]
+
+
+def test_two_computers_never_get_the_same_job_unless_you_said_both(monkeypatch):
+    _fake([{"pc": "Studio", "task": "open gmail"}, {"pc": "MacBook", "task": "Open Gmail"}, {"pc": "Mac mini", "task": "play music"}], monkeypatch)
+    r = route("open gmail and play music")
+    assert pairs(r) == [("Studio", "open gmail"), ("Mac mini", "play music")]
+    assert len(route("open gmail on both").assignments) == 3                   # an explicit "both" still means both

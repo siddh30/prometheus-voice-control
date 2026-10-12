@@ -250,7 +250,7 @@ struct SwarmBox: View {
                         Text(pc.approval).font(.system(size: 11, weight: .medium, design: .rounded)).foregroundStyle(SwarmStyle.warn).lineLimit(3)
                     }
                     if !pc.result.isEmpty {
-                        Text(pc.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92)).lineLimit(6)
+                        Text(pc.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92)).lineLimit(14)
                     }
                     if !pc.error.isEmpty {
                         Text(pc.error).font(.system(size: 11, design: .rounded)).foregroundStyle(SwarmStyle.bad).lineLimit(3)
