@@ -5,18 +5,18 @@ A macOS voice assistant with two ways to talk to it:
 | How | What it does |
 |---|---|
 | **Dictate** (hold or toggle **F9**) | Speak and the text is typed at the cursor, in any app. |
-| **Prometheus** (**F10**, or say "Prometheus") | A hands-free conversation with one Claude agent that also *acts*: it drives your own logged-in Chrome, sees the screen and uses the mouse and keyboard, reads files, searches the web, and narrates what it is doing. You can talk over it, type to it, or interrupt it at any time. |
+| **Prometheus** (**F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also *acts*: it drives your own logged-in Chrome, sees the screen and uses the mouse and keyboard, reads files, searches the web, and narrates what it is doing. You can talk over it, type to it, or interrupt it at any time. |
 
 A small floating widget shows the state (listening, thinking, working, speaking), the plan for bigger tasks, and what is being said.
 
 ## Design principles
 
 1. **One brain.** A single agent both converses and acts. No hand-off between a "chat" model and a "doer" model.
-2. **Never block the human.** Full-duplex audio: it listens while it speaks, so you can cut it off. Anything slow (agent start-up, browser connection) happens in the background.
+2. **Never block the human.** Pressing F10 (or typing and pressing Enter) cuts off whatever it is saying or doing and starts your next request. Anything slow (agent start-up, browser connection) happens in the background.
 3. **Scale the ceremony to the task.** A chat reply gets no plan, a one-step action gets one sentence, a multi-step job gets a checklist.
 4. **Act, don't ask.** Ordinary things (open, search, click, play) are done without permission prompts. Only a narrow gate (money, sending, deleting) asks.
 5. **Everything is a plugin.** Modes, actions, skills, browser backends and TTS/STT engines are registered by name. Adding one is a new file.
-6. **Local first.** The always-on wake-word listener runs on-device. Secrets live in a local `.env`, never in the repo.
+6. **Nothing listens unless you ask.** The microphone is open only while you record: no wake word, no always-on listener. Secrets live in a local `.env`, never in the repo.
 7. **Observable.** Every turn is traced to a local Phoenix (Arize) instance.
 
 ## Architecture
@@ -98,11 +98,10 @@ flowchart LR
         WS[WebSocket bridge<br/>+ heartbeat]
         CTRL[api.Control]
         SM[Session manager<br/>state machine]
-        VOICE[VoiceChannel<br/>ears, VAD, echo, mic health]
+        VOICE[VoiceChannel<br/>PushRecorder, mic health]
         TEXT[TextChannel<br/>typing, typing mode]
         STT[Speech-to-text]
         TTS[Speaker<br/>Engine, cache, captions]
-        WAKE[Wake-word listener<br/>local model only]
         subgraph Modes
             DICT[Dictate]
             PROM[Prometheus]
@@ -131,7 +130,6 @@ flowchart LR
     SM --> Modes
     VOICE --> STT --> PROM
     TEXT --> PROM
-    WAKE --> SM
     PROM --> JEV
     PROM --> RUN
     RUN --> BT --> CH
@@ -161,9 +159,8 @@ widget builds commands only through `Command` in `Protocol.swift`, and a test fa
 | Command | Fields | What it does |
 |---|---|---|
 | `text` | `text` | A typed message. Interrupts what it is saying or doing and becomes the newest instruction. |
-| `input_mode` | `mode` | `typed` when the type box opens (voice is ignored completely), `voice` when it closes. |
+| `input_mode` | `mode` | `typed` when the type box opens (F10 is ignored and the mic is never opened), `voice` when it closes. |
 | `voice` | `on` | Speak replies aloud, or show them as text only. |
-| `wake` | `enabled` | Turn the wake word on or off. |
 | `newchat` | none | Clean conversation; facts and lessons are kept. |
 | `fresh` | none | Forget everything. |
 | `maintenance` | none | Tidy memory now. |
@@ -194,12 +191,9 @@ widget handles. (`?` marks an optional field, which may also be empty.)
 | `job` | `active`, `text`? | A task is running in the background while you keep talking. |
 | `voice` | `on` | Whether replies are spoken (also sent to a new widget on connect). |
 | `speaking` | `on` | The assistant is talking. |
-| `music` | `on`, `title`? | Media is playing: listen for the name only. |
-| `duplex` | `mode` | How talking over it works: full (headphones), echo, half. |
+| `music` | `on`, `title`? | A song or video is playing: the widget shows its title (F10 records over it as usual). |
 | `route` | `kind`, `how`?, `confidence`?, `action`? | How the request was classified: chat, action or agent. |
-| `wake` | `listening` | The wake-word listener is on or off. |
 | `session` | `label` | The agent session label (turn count, minutes); empty after a new conversation. |
-| `attend` | `on` | Music mode: for a few seconds the next thing you say is for the assistant, no name needed. |
 | `cost` | `usd`, `turns` | Cost in dollars and the number of agent turns of the last run. |
 | `input_request` | `id`, `op` | The agent asks the app to look at or act on the screen. |
 | `paste` | `text` | Dictation text for the app to paste at the cursor. |
@@ -213,7 +207,7 @@ fake in a test) and nothing else changes. A guard test per row fails if code rea
 |---|---|---|---|---|
 | `Control` | `api/control.py` | `on(name, handler)`, `start()`, `stop()` | the daemon's one dispatcher | tests for validation, isolation, ordering |
 | `RequestBroker` | `api/requests.py` | `request(event, timeout, **args)`, `resolve(command)` | request/response over events (screen, mouse, keys) | timeout and id-matching tests |
-| `VoiceChannel` | `channels/voice.py` | `open`, `pause`, `decide_duplex`, `is_echo`, `step_down`, `on_mic_problem` | mic, speech detection, echo, mic health | stands-alone tests |
+| `VoiceChannel` | `channels/voice.py` | `open`, `press`, `pause`, `recording`, `on_mic_problem` | `PushRecorder`: press to start, press to send; the mic is open only while recording | stands-alone tests |
 | `TextChannel` | `channels/text.py` | `exclusive`, `note_typed`, `recently_used` | typing and the exclusive typing mode | |
 | `LLM` | `llm/__init__.py` | `text`, `tool_calls`, `stream` | `AnthropicLLM` | the SDK is imported only in `llm/` |
 | `Engine` (TTS) | `tts/engines.py` | `synth(text, path)`, `ext`, `cacheable` | `EdgeEngine`, `SystemEngine` | the Edge library is imported only there |
@@ -237,22 +231,24 @@ fake in a test) and nothing else changes. A guard test per row fails if code rea
 
 Every diagram below is one pathway through the code.
 
-### Voice input
+### Voice input (push-to-talk)
 
 ```mermaid
 flowchart LR
-    MIC["Microphone<br/>(always-open stream)"] --> EARS["Ears<br/>cuts audio into utterances"]
-    EARS --> VAD["VadEndpointer<br/>when did you stop?"]
-    VAD --> STT["STT backend<br/>whisper-1 / local faster-whisper"]
-    STT --> ECHO{"is_echo?<br/>our own voice?"}
-    ECHO -- yes --> DROP["ignored,<br/>duplex steps down after 2"]
-    ECHO -- no --> TURN["text to the core"]
-    DUP["decide_duplex<br/>headphones: full<br/>speakers: echo / half"] -.-> EARS
-    HEALTH["mic health<br/>silent / changed / gone"] -.-> NOTICE["notice event<br/>(not while typing)"]
-    EARS -. "speech started" .-> CUT["cut off the current reply"]
+    KEY["F10 pressed<br/>(key command)"] --> REC{"recording?"}
+    REC -- no --> START["on_start: cut off the reply or task<br/>open the microphone"]
+    REC -- yes --> SEND["close the microphone"]
+    SEND --> LEN{"long enough, any audio?"}
+    LEN -- no --> HINT["plain hint, back to waiting"]
+    LEN -- yes --> STT["STT backend<br/>whisper-1 / local faster-whisper"]
+    STT --> TURN["text to the core"]
+    CAP["120 s limit"] -. "forgotten recording" .-> SEND
+    HEALTH["mic health<br/>silent / unavailable / no audio"] -.-> NOTICE["notice or error event<br/>(not while typing)"]
 ```
 
-Owns it: `channels/voice.py`, `core/ears.py`, `core/vad.py`, `core/echo.py`, `stt/`.
+The microphone is open only between the two presses, so there is no always-on listener, no wake word and no echo to
+cancel. Starting a recording is also the interruption: it stops speech and cancels the running reply (an approval
+question waiting for your answer is kept). Owns it: `channels/voice.py`, `input/mic.py`, `stt/`.
 
 ### Typing
 
@@ -260,7 +256,7 @@ Owns it: `channels/voice.py`, `core/ears.py`, `core/vad.py`, `core/echo.py`, `st
 flowchart LR
     BOX["Type box<br/>(widget)"] -- "input_mode: typed" --> CTRL["api.Control"]
     CTRL --> EXCL["TextChannel.exclusive = true"]
-    EXCL --> PAUSE["VoiceChannel.pause(true)<br/>mic never opened, voice ignored,<br/>no idle timeout"]
+    EXCL --> PAUSE["VoiceChannel.pause(true)<br/>recording dropped, F10 ignored,<br/>mic never opened"]
     BOX -- "text" --> CTRL
     CTRL --> SUBMIT["submit_text<br/>cut off, becomes newest instruction"]
     SUBMIT --> CORE["core turn"]
@@ -289,7 +285,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    PUBLISHERS["modes, agents, speaker, wake, maintenance<br/>bus.publish(type, ...)"] --> BUS(("EventBus<br/>slow subscriber drops oldest"))
+    PUBLISHERS["modes, agents, speaker, maintenance<br/>bus.publish(type, ...)"] --> BUS(("EventBus<br/>slow subscriber drops oldest"))
     BUS --> BRIDGE["UIBridge<br/>JSON over WebSocket"]
     HB["heartbeat every 3 s"] --> BRIDGE
     BRIDGE --> INGEST["widget Ingest<br/>off the main thread<br/>mic level collapsed to latest"]
@@ -331,17 +327,6 @@ flowchart LR
     PASTE --> APP["widget Paster<br/>types at the cursor,<br/>clipboard restored"]
 ```
 
-### Wake word
-
-```mermaid
-flowchart LR
-    WMIC["Wake mic<br/>(own stream, released when another mode runs)"] --> WSTT["Local faster-whisper base.en<br/>audio never leaves the Mac"]
-    WSTT --> FIND{"find_wake<br/>name near the start,<br/>matched by spelling and sound"}
-    FIND -- no --> WMIC
-    FIND -- yes --> SESS["Session.wake(rest of the sentence)"]
-    SESS --> CONV["conversation starts<br/>with a varied greeting"]
-```
-
 ### Approvals
 
 ```mermaid
@@ -360,13 +345,12 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    SONG["media plays"] --> MODE["music mode<br/>conversation stays open"]
-    MODE --> HEAR["utterance heard"]
-    HEAR --> NAME{"starts with the name,<br/>or inside the attend window?"}
-    NAME -- no --> IGN["ignored (lyrics, the video's audio)"]
-    NAME -- yes --> TURN["a normal turn"]
-    KEY["F10 during music"] --> ATT["attend event:<br/>next sentence needs no name"]
-    ATT --> HEAR
+    SONG["audio request ends with a song playing"] --> MODE["music mode<br/>widget shows the title"]
+    MODE --> KEY["F10 pressed"]
+    KEY --> REC["records as usual<br/>the song is never paused"]
+    REC --> TURN["a normal turn"]
+    TURN --> BACK["widget returns to the song, not idle"]
+    ENDED["song ends, tab closes or you pause it"] --> OUT["music mode ends by itself"]
 ```
 
 ### Releases and profiles
@@ -385,15 +369,15 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant U as You
-    participant E as Ears (VAD + mic)
+    participant E as Recorder (F10)
     participant S as STT
     participant P as Prometheus
     participant J as Jev
     participant A as Agent (Claude)
     participant T as Speaker
 
-    U->>E: speaks
-    E->>S: audio (speculative transcription after a short pause)
+    U->>E: presses F10, speaks, presses F10
+    E->>S: the recording
     S->>P: text
     P->>J: instant command? complexity? risk?
     alt exact one-step command ("open Safari", "volume 30")
@@ -407,18 +391,19 @@ sequenceDiagram
             P-->>U: step shown on the widget
         end
     end
-    U-->>E: talks over it
+    U-->>E: presses F10 (or types and presses Enter)
     E-->>T: stop speaking at once
-    E-->>A: cancel, newest sentence becomes the instruction
+    E-->>A: cancel, the new request becomes the instruction
 ```
 
 Key behaviours:
 
-- **Endpointing:** a voice-activity model (Silero) decides when you are done. The pause tolerance is configurable (default 1.4 s) so you can think mid-sentence. Transcription starts speculatively after a shorter pause and is discarded if you keep talking.
-- **Barge-in and echo:** on headphones the mic stays open while it speaks. On speakers an echo-aware detector (loudness-envelope matching against what it is playing) separates your voice from its own, and the system steps down (full duplex → echo-aware → deaf-while-speaking) if it keeps hearing itself.
+- **Push-to-talk:** F10 starts a recording and F10 again sends it, like dictation on F9. Nothing is heard in between, so there is no echo, no talking over it and no endpoint guessing. A recording that is too short is ignored with a hint; a forgotten one ends itself after 120 s.
+- **Interrupting:** starting a recording, or typing a message and pressing Enter, cuts off whatever it is saying or doing. A running background task is not stopped by the key: you can give instructions while it works, and say "stop" to cancel it.
 - **Transcript hygiene:** English is forced, then transcripts that are not speech are dropped (invented subtitle phrases, other scripts, the prompt echoed back).
-- **Typing:** the widget has a text box. A typed message interrupts exactly like speech.
-- **Goodbyes:** any natural close ("thanks", "that's all", "good night", "I'm done") ends the conversation, but "thanks, now open Gmail" does not. The reply is a warm, varied farewell.
+- **Typing:** the widget has a text box. While it is open the microphone is never used. A typed message interrupts exactly like a new recording.
+- **Goodbyes:** any natural close ("thanks", "that's all", "good night", "I'm done") ends the conversation, but "thanks, now open Gmail" does not. The reply is a warm, varied farewell. Otherwise the conversation stays open until you press Esc.
+- **Shrinking:** thirty seconds after the last F10 press, with nothing running, the card collapses back to the small pill. It never shrinks while a reply is being spoken, a task runs, an approval waits or you are recording.
 
 ## The agent
 
@@ -500,9 +485,8 @@ Lifecycle controls:
 ## Speech
 
 - **Dictation and conversation STT:** OpenAI Whisper API by default (best accuracy on names and accents), or local faster-whisper (offline, free). Swappable by config.
-- **Wake word:** always local (small faster-whisper model); room audio never leaves the machine. Matching is by spelling *and* sound, across split words ("pro me the us"), only near the start of an utterance.
 - **TTS:** Edge neural voices, streamed sentence by sentence with a short pre-roll to wake Bluetooth outputs, cached on disk; captions are revealed in step with the audio. A toggle switches to text-only replies (handy on speakers).
-- **Microphone resilience:** if the default input changes (AirPods off, USB mic in) the stream is re-opened, the audio system is refreshed, and a device that refuses 16 kHz is recorded at its native rate and converted.
+- **Microphone resilience:** each recording opens the default input fresh. If the device list is stale (AirPods off, USB mic in) the audio system is refreshed and the open retried, and a device that refuses 16 kHz is recorded at its native rate and converted.
 
 ## The widget
 
@@ -510,17 +494,17 @@ States are colour-coded with Siri-style ribbons: idle, listening, transcribing, 
 
 ## Music mode
 
-While media plays, the assistant keeps listening but acts only on utterances that start with its name, so lyrics and the video's own audio are ignored.
+While media plays the widget shows the song and stays on it between requests. Press F10 to talk over it as usual; the song is never paused by the assistant.
 
 ## Profiles and releases
 
-- **dev** (default when running from source): separate data folder, port and config overlay; no hotkeys, wake word, or TTS by default. This keeps automated testing away from the user's real setup.
+- **dev** (default when running from source): separate data folder, port and config overlay; no hotkeys or TTS by default. This keeps automated testing away from the user's real setup.
 - **stable** (the installed app): runs from an immutable **release snapshot** with its own virtualenv. `scripts/release.sh` builds a snapshot, verifies it boots as `stable`, rebuilds the app pointed at it, and refuses to run while the app is open. Releases are timestamped, so rolling back is re-pointing one link.
 - The app is a single `Voice Control.app` (Dock-pinnable) that supervises the daemon, restarts it if it dies, and keeps the previous run's log for debugging.
 
 ## Privacy and security
 
-- **Leaves the machine:** speech audio and text to the STT/LLM/TTS providers you configure, and agent traffic to Anthropic. The wake-word audio does not.
+- **Leaves the machine:** speech audio and text to the STT/LLM/TTS providers you configure, and agent traffic to Anthropic.
 - **Secrets:** API keys live in a git-ignored `.env` (user-level, outside the repo for installed releases). Names used: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (Whisper), `TYPESAFE_API_KEY` (Jev), `TAVILY_API_KEY` and `OPENWEATHERMAP_API_KEY` (optional skills).
 - **Local data:** memory database, voice cache, traces and logs stay under the app's data folder and are git-ignored.
 - **Permissions requested:** Microphone, Accessibility and Input Monitoring (hotkeys, mouse/keyboard control, paste), Screen Recording (screenshots).

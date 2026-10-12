@@ -11,7 +11,6 @@ class FakeOS:
     def __init__(self):
         self.calls = []
         self.clip = b"before"
-        self.devices = '{"SPAudioDataType": []}'
 
     def run(self, cmd, **k):
         self.calls.append(("run", cmd))
@@ -23,7 +22,6 @@ class FakeOS:
 
     def clipboard_read(self): self.calls.append(("clip_read",)); return self.clip
     def clipboard_write(self, data): self.calls.append(("clip_write", data)); self.clip = data
-    def audio_devices_json(self): return self.devices
     def process_rss_kb(self, pid): return 2048
     def find_folders(self, name, under): return [f"{under}/Work/{name}", f"{under}/Library/x/{name}", f"{under}/{name}"]
     def open_application(self, app, target): self.calls.append(("open", app, target))
@@ -32,7 +30,6 @@ class FakeOS:
 def with_fake(monkeypatch):
     fake = FakeOS()
     platform.set_platform(fake)
-    monkeypatch.setattr("voicectl.core.audio_output._cache", None, raising=False)
     return fake
 
 
@@ -47,17 +44,13 @@ def test_actions_reach_the_os_only_through_the_platform(monkeypatch):
         platform.set_platform(None)
 
 
-def test_memory_headphones_and_folders_come_from_the_platform_too(monkeypatch):
+def test_memory_and_folders_come_from_the_platform_too(monkeypatch):
     fake = with_fake(monkeypatch)
     try:
         from voicectl.core.maintenance import rss_mb
         assert rss_mb() == 2.0
         from voicectl.actions.open_folder import _spotlight
         assert str(_spotlight("Work")).endswith("/Work")                 # filters ~/Library, prefers the shortest path
-        fake.devices = '{"SPAudioDataType":[{"_items":[{"_name":"AirPods","coreaudio_default_audio_output_device":"spaudio_yes","coreaudio_device_transport":"coreaudio_device_type_bluetooth"}]}]}'
-        from voicectl.core import audio_output
-        audio_output._cache = None
-        assert audio_output.default_output() == ("AirPods", "bluetooth")
     finally:
         platform.set_platform(None)
 

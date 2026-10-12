@@ -11,14 +11,11 @@ from voicectl.tts.engines import Engine, SystemEngine, engine_for
 import tempfile
 import time
 import wave
-from collections import deque
 
-import numpy as np
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 from voicectl.core.config import DATA_DIR, Config
-from voicectl.core.echo import EchoReference
 from voicectl.core.events import EventBus
 
 log = logging.getLogger("voicectl.tts")
@@ -53,18 +50,6 @@ async def one(text: str) -> AsyncIterator[str]:
     yield text
 
 
-def decode_pcm(path: Path) -> np.ndarray | None:
-    """What we are about to play, as 16 kHz mono floats, so the echo detector can predict how it will sound in the mic."""
-    try:
-        with tempfile.TemporaryDirectory() as d:
-            out = Path(d) / "ref.wav"
-            platform.current().to_wav16k(str(path), str(out))
-            with wave.open(str(out), "rb") as w:
-                return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype("float32") / 32768.0
-    except Exception:
-        return None
-
-
 class Speaker:
     """Reads text aloud. Edge neural voices (free, online) with the offline macOS `say` as fallback.
 
@@ -80,8 +65,6 @@ class Speaker:
         self._proc: asyncio.subprocess.Process | None = None
         self._task: asyncio.Task | None = None
         self.active_since_first = False
-        self.reference = EchoReference()                              # the loudness envelope of what we play (for hearing you over it)
-        self.spoken: deque[tuple[float, str]] = deque(maxlen=40)     # (when, text) of what we said recently: the echo guard compares against it
 
     @property
     def active(self) -> bool:
@@ -144,7 +127,6 @@ class Speaker:
     def stop(self) -> None:
         if self._proc and self._proc.returncode is None:
             self._proc.terminate()
-        self.reference.clear()                                              # whatever was queued will not be heard
         if self._task and not self._task.done():
             self._task.cancel()
         self._proc = None
@@ -152,7 +134,7 @@ class Speaker:
     # --- internals ---
     async def _run(self, chunks: AsyncIterator[str], clean: bool, show: bool = False) -> None:
         self.active_since_first = False
-        queue: asyncio.Queue[tuple[Path, str, np.ndarray | None] | None] = asyncio.Queue(maxsize=2)    # synthesize ahead of playback
+        queue: asyncio.Queue[tuple[Path, str] | None] = asyncio.Queue(maxsize=2)    # synthesize ahead of playback
         shown = ""                       # text already revealed (previous chunks)
         speaking = False
         preroll = self.config.get("tts.preroll_ms", 300)
@@ -163,7 +145,7 @@ class Speaker:
                     chunk = clean_for_speech(chunk, None) if clean else chunk
                     if chunk:
                         p = await self._synth(chunk, tmp)
-                        await queue.put((p, chunk, await asyncio.to_thread(decode_pcm, p)))
+                        await queue.put((p, chunk))
             finally:
                 await queue.put(None)
 
@@ -172,7 +154,7 @@ class Speaker:
             producer = asyncio.create_task(produce())
             try:
                 while (item := await queue.get()) is not None:
-                    path, chunk_text, pcm = item
+                    path, chunk_text = item
                     if not speaking:
                         speaking = True
                         self.bus.publish("speaking", on=True)
@@ -180,9 +162,6 @@ class Speaker:
                             await self._play(self._silence(preroll))          # wake the output device
                     if not Speaker.first_audio_at or not self.active_since_first:
                         Speaker.first_audio_at, self.active_since_first = time.monotonic(), True
-                    self.spoken.append((time.monotonic(), chunk_text))
-                    if pcm is not None:
-                        self.reference.add(time.monotonic() + 0.05, pcm)      # afplay starts a moment after we launch it
                     reveal = asyncio.create_task(self._reveal(path, chunk_text, shown)) if show else None
                     try:
                         await self._play(path)
@@ -234,7 +213,7 @@ class Speaker:
                 log.debug("prefetch failed: %s", e)
         asyncio.get_running_loop().create_task(go())
 
-    def wake(self) -> None:
+    def warm_output(self) -> None:
         """Fire-and-forget: wake the output device now (silent clip) while we think, so the reply's first word
         isn't clipped and no lead-in delay is added later."""
         ms = self.config.get("tts.preroll_ms", 300)

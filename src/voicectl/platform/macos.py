@@ -28,9 +28,6 @@ class MacOS:
     def clipboard_write(self, data: bytes) -> None:
         subprocess.run(["pbcopy"], input=data, check=True)
 
-    def audio_devices_json(self) -> str:
-        return subprocess.run(["system_profiler", "SPAudioDataType", "-json"], capture_output=True, text=True, timeout=20).stdout
-
     def process_rss_kb(self, pid: int) -> int:
         out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
         return int(out) if out.isdigit() else 0
@@ -41,9 +38,6 @@ class MacOS:
 
     def open_application(self, app: str, target: str) -> None:
         subprocess.run(["open", "-a", app, target], check=False)
-
-    def to_wav16k(self, src: str, dst: str) -> None:
-        subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", src, dst], check=True, capture_output=True, timeout=10)
 
     async def start_playback(self, path: str):
         """Begin playing a sound file; returns a process-like object with wait() and terminate()."""

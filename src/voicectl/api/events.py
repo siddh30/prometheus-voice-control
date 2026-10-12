@@ -22,11 +22,8 @@ EVENTS: dict[str, dict[str, tuple[Any, bool]]] = {
     "voice":       {"on": (bool, True)},
     "speaking":    {"on": (bool, True)},
     "music":       {"on": (bool, True), "title": (str, False)},
-    "duplex":      {"mode": (str, True)},
     "route":       {"kind": (str, True), "how": (str, False), "confidence": ((int, float), False), "action": (str, False)},
-    "wake":        {"listening": (bool, True)},
     "session":     {"label": (str, True)},
-    "attend":      {"on": (bool, True)},
     "cost":        {"usd": ((int, float), True), "turns": (int, True)},
     "input_request": {"id": (str, True), "op": (str, True)},                   # the agent asks the app to look at / act on the screen
     "paste":       {"text": (str, True)},

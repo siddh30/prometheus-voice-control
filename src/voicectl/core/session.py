@@ -39,7 +39,7 @@ class SessionManager:
     def __init__(self, config: Config, bus: EventBus, mic: MicLike, stt: STTBackend,
                  modes: dict[str, Mode], speaker=None, convo_stt=None) -> None:
         self.speaker = speaker
-        self.convo_stt = convo_stt           # smaller/faster model for hands-free conversation; dictation keeps `stt`
+        self.convo_stt = convo_stt           # smaller/faster model for conversation; dictation keeps `stt`
         self.config, self.bus, self.mic, self.stt, self.modes = config, bus, mic, stt, modes
         self.state = State.IDLE
         self.active_mode: str | None = None
@@ -91,25 +91,20 @@ class SessionManager:
     def conversation_active(self) -> bool:
         return bool(self._conv_task and not self._conv_task.done())
 
-    def wake(self, mode: str, initial: str = "", heard: str = "") -> None:
-        """Start a hands-free conversation by voice (the wake word). No-op unless idle."""
+    def start_with_text(self, mode: str, initial: str) -> None:
+        """Start a conversation with a typed message (nothing is recorded). No-op unless idle."""
         mode_obj = self.modes.get(mode)
         if mode_obj is None or self.state is not State.IDLE or (self._conv_task and not self._conv_task.done()):
             return
-        if heard:                                   # show what you said ("Prometheus"), like any other utterance
-            self.bus.publish("transcript", text=heard, mode=mode)
         self._start_continuous(mode, mode_obj, initial)
 
     def _toggle_continuous(self, mode: str, mode_obj: Mode) -> None:
         if self._conv_task and not self._conv_task.done():
-            interrupt = getattr(mode_obj, "interrupt", None)
-            if interrupt and interrupt():   # it was thinking/speaking: cut it off and keep the conversation going
-                return
-            self._conv_task.cancel()        # it was waiting for you: the press ends the conversation
+            mode_obj.press()                # the key starts a recording (cutting off any reply), or sends it
             return
         if self.state is not State.IDLE:
             return
-        self._start_continuous(mode, mode_obj)
+        self._start_continuous(mode, mode_obj)      # opens the conversation and starts its first recording
 
     def _start_continuous(self, mode: str, mode_obj: Mode, initial: str = "") -> None:
         if self.speaker:

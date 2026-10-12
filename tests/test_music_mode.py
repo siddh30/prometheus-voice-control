@@ -32,38 +32,33 @@ class FakeRunner:
     def status(self): return ""
 
 
-class FakeEars:
-    paused = False
-
-
 class Spk:
-    active = False; spoken = []; reference = None
+    active = False
     def __init__(self): self.said = []
     async def speak(self, t): self.said.append(t)
     async def speak_many(self, chunks, **kw):
         async for c in chunks: self.said.append(c)
     def stop(self): ...
-    def wake(self): ...
+    def warm_output(self): ...
     def quiet_for(self): return 99.0
 
 
 def make():
-    cfg = Config({"tts": {"enabled": True}, "conversation": {"output": "headphones"}, "wake_word": {"enabled": False}})
+    cfg = Config({"tts": {"enabled": True}})
     bus = EventBus()
     ctx = ModeContext(cfg, bus, Spk())
     browser = FakeBrowser()
     ctx.shared["agent_runner"] = FakeRunner(browser)
     m = PrometheusMode(ctx)
-    m.voice.ears = FakeEars()
     events = []
     bus.publish = lambda t, **d: events.append((t, d))
     return m, browser, events, ctx
 
 
-async def test_an_audio_request_that_ends_with_a_song_playing_enters_quiet_name_only_listening():
+async def test_an_audio_request_that_ends_with_a_song_playing_enters_music_mode():
     m, browser, events, ctx = make()
     assert await m._agent_turn("play bohemian rhapsody on youtube") == "Playing it now."
-    assert m.music and m.holding() and not m.voice.ears.paused                  # the music is NOT stopped and the ears stay ON
+    assert m.music and m.holding()                                              # the music is NOT stopped
     assert "pause" not in browser.calls
     assert ("music", {"on": True, "title": "Queen – Bohemian Rhapsody - YouTube"}) in events
     assert ("state", {"state": "music", "mode": "prometheus"}) in events
@@ -84,41 +79,6 @@ async def test_the_agent_pressing_play_counts_as_an_audio_request_even_without_t
     m._music_watch.cancel()
 
 
-async def test_while_music_plays_lyrics_are_ignored_and_only_the_name_gets_through():
-    m, browser, events, ctx = make()
-    await m._agent_turn("play it"); m._music_watch.cancel()
-    assert await m.filter_utterance("you know how we used to live in the summer") is None      # lyrics: silently ignored
-    assert await m.filter_utterance("la la la hold on to me tonight") is None
-    assert await m.filter_utterance("Prometheus, skip to the next song") == "skip to the next song"
-    assert await m.filter_utterance("Hey Prometheus pause it") == "pause it"
-    assert await m.filter_utterance("Prometheus") is None                                       # just the name: acknowledged instead
-    assert not any(t == "transcript" for t, _ in events)                                        # ignored speech never touches the screen
-
-
-async def test_saying_just_the_name_opens_a_short_window_where_no_name_is_needed():
-    m, browser, events, ctx = make()
-    await m._agent_turn("play it"); m._music_watch.cancel()
-    await m.filter_utterance("Prometheus")
-    assert await m.filter_utterance("make it louder") == "make it louder"                       # the follow-up needs no name
-    assert await m.filter_utterance("la la la") is None                                          # and the window closes after one use
-
-
-async def test_pressing_the_key_during_music_means_the_next_thing_is_for_me_and_never_pauses():
-    m, browser, events, ctx = make()
-    await m._agent_turn("play it"); m._music_watch.cancel()
-    assert m.interrupt() is True
-    assert "pause" not in browser.calls and m.music is not None
-    assert await m.filter_utterance("play something calmer") == "play something calmer"
-
-
-async def test_speech_detected_during_music_does_not_flicker_the_widget_or_cut_a_reply():
-    m, browser, events, ctx = make()
-    await m._agent_turn("play it"); m._music_watch.cancel()
-    events.clear()
-    m._on_speech_start()                                                    # the song's vocals
-    assert events == []                                                     # no 'listening' flash, nothing cancelled
-
-
 async def test_after_a_command_during_music_the_widget_returns_to_playing_not_idle():
     m, browser, events, ctx = make()
     await m._agent_turn("play it"); m._music_watch.cancel()
@@ -127,10 +87,10 @@ async def test_after_a_command_during_music_the_widget_returns_to_playing_not_id
     m._turn = asyncio.create_task(m._run_turn(None, None, "Done."))
     await asyncio.sleep(0.05)
     states = [d["state"] for t, d in events if t == "state"]
-    assert states and states[-1] == "music"                                 # ...and when it ends it returns to "playing", not "listening"
+    assert states and states[-1] == "music"                                 # ...and when it ends it returns to "playing", not idle
 
 
-async def test_when_the_song_ends_it_goes_back_to_normal_listening_by_itself(monkeypatch):
+async def test_when_the_song_ends_the_widget_goes_back_to_idle_by_itself(monkeypatch):
     import voicectl.modes.prometheus as pm
     real_sleep = asyncio.sleep
     monkeypatch.setattr(pm.asyncio, "sleep", lambda s: real_sleep(0.01))
@@ -140,7 +100,7 @@ async def test_when_the_song_ends_it_goes_back_to_normal_listening_by_itself(mon
     browser.state = {**browser.state, "playing": False}                    # ended, or you paused it yourself
     await real_sleep(0.2)
     assert m.music is None and ctx.shared["music_playing"] is False
-    assert ("state", {"state": "listening", "mode": "prometheus"}) in events
+    assert ("state", {"state": "idle", "mode": "prometheus"}) in events
 
 
 async def test_a_muted_or_short_clip_is_not_music_even_after_an_audio_request():
@@ -161,10 +121,10 @@ async def test_no_page_open_means_no_check_and_no_blank_tab_is_created():
     assert browser.calls == [] and m.music is None
 
 
-async def test_music_mode_keeps_the_conversation_open_instead_of_timing_out():
+async def test_music_mode_keeps_the_conversation_open_instead_of_closing_it():
     m, browser, events, ctx = make()
     await m._agent_turn("play it")
-    assert m.holding()                          # ConversationMode.run() skips its no-speech timeout while holding
+    assert m.holding()                          # ConversationMode.run() does not close an idle conversation while a song plays
     m._music_watch.cancel()
 
 
@@ -172,3 +132,11 @@ def test_emoji_never_reach_the_captions():
     from voicectl.tts.speaker import clean_for_speech, strip_emoji
     assert strip_emoji("Enjoy the song 🎵 😊!") == "Enjoy the song  !"
     assert "note" not in clean_for_speech("Playing it now 🎵").lower() and "face" not in clean_for_speech("Done 😊").lower()
+
+
+async def test_pressing_the_key_during_music_records_as_usual_and_never_pauses_the_song():
+    m, browser, events, ctx = make()
+    await m._agent_turn("play it"); m._music_watch.cancel()
+    m._on_record_start()                                                    # F10: the recorder starts
+    assert "pause" not in browser.calls and m.music is not None             # the song keeps playing
+    assert ("state", {"state": "listening", "mode": "prometheus"}) in events

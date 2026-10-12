@@ -42,7 +42,7 @@ class FakeSpeaker:
             self.said.append(c)
             await asyncio.sleep(0)
     def stop(self): self.stopped += 1
-    def wake(self): ...
+    def warm_output(self): ...
     def prefetch(self, t): ...
 
 
@@ -90,7 +90,7 @@ async def test_a_spoken_yes_answers_the_approval_without_cancelling_the_waiting_
     await asyncio.sleep(0.05)
     runner.pending_approval = True                 # the agent is paused on "Apply?"
     m._turn = turn
-    m._on_speech_start()                           # you begin to say "yes"
+    m._on_record_start()                           # you begin to say "yes"
     await asyncio.sleep(0.05)
     assert not turn.cancelled() and not turn.done()                       # the waiting step survived
     assert await m.intercept("Yes, go ahead.") is True
@@ -326,7 +326,7 @@ def _quick_chat_mode(tmp_path, pieces, spoken):
         async def speak_many(self, chunks, clean=True, show=False):
             async for c in chunks: spoken.append(c)
         def stop(self): pass
-        def wake(self): pass
+        def warm_output(self): pass
     ctx = ModeContext(Config({"agent": {"fast_chat": True}, "tts": {"enabled": True}, "browser": {"backend": "playwright"}}), EventBus())
     ctx.speaker = Spk()
     m = PrometheusMode(ctx)

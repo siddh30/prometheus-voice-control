@@ -21,7 +21,6 @@ func renderSnapshots(to dir: String) {
     shot("1_idle") { $0.phase = .idle }
     shot("1d_typing") { $0.phase = .idle; $0.typing = true }
     shot("1c_connecting") { $0.connected = false }
-    shot("1b_idle_wake") { $0.phase = .idle; $0.wakeListening = true }
     shot("8_assistant_chat") { $0.phase = .thinking; $0.mode = "assistant"; $0.route = "chat"
         $0.transcript = "What's a good way to prepare for a product manager interview?"
         $0.result = "Start by practicing a few product sense questions out loud. Pick a product you use, then walk through who it's for and what you'd improve." }

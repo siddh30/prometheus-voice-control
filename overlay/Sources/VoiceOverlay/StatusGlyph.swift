@@ -6,7 +6,6 @@ struct StatusGlyph: View {
     let color: Color
     let connected: Bool
     var speaking = false
-    var wake = false
     var job = false
 
     var body: some View {

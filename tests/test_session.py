@@ -128,6 +128,8 @@ class HangingConversation(Mode):
     name = "assistant"
     continuous = True
     started = 0
+    presses = 0
+    def press(self): HangingConversation.presses += 1
     async def handle(self, text): ...
     async def run(self, mic, stt, initial=""):
         HangingConversation.started += 1
@@ -152,13 +154,27 @@ async def test_any_mode_key_escapes_a_stuck_conversation():
     assert speak.got == ["hello world"]
 
 
-async def test_same_key_ends_conversation():
+async def test_the_same_key_inside_a_conversation_starts_and_sends_recordings_and_escape_ends_it():
     cfg = Config({"recording": {"min_hold_ms": 0, "mode": "toggle"}})
     bus = EventBus()
+    HangingConversation.presses = 0
     s = SessionManager(cfg, bus, FakeMic(), FakeSTT(), {"assistant": HangingConversation(ModeContext(cfg, bus))})
-    s.key_down("assistant"); await asyncio.sleep(0.05)
-    s.key_down("assistant"); await asyncio.sleep(0.05)
-    assert s.state is State.IDLE
+    s.key_down("assistant"); await asyncio.sleep(0.05)           # opens the conversation (its first recording starts there)
+    assert s.conversation_active() and HangingConversation.presses == 0
+    s.key_down("assistant"); await asyncio.sleep(0.05)           # F10 again: the recorder's start / send
+    assert s.conversation_active() and HangingConversation.presses == 1 and s.state is State.HANDLING
+    s.cancel(); await asyncio.sleep(0.05)                        # Escape ends the conversation
+    assert s.state is State.IDLE and not s.conversation_active()
+
+
+async def test_typing_can_start_a_conversation_without_recording_anything():
+    cfg = Config({"recording": {"min_hold_ms": 0, "mode": "toggle"}})
+    bus = EventBus()
+    conv = HangingConversation(ModeContext(cfg, bus))
+    s = SessionManager(cfg, bus, FakeMic(), FakeSTT(), {"assistant": conv})
+    s.start_with_text("assistant", "open linkedin")
+    await asyncio.sleep(0.05)
+    assert s.conversation_active() and s.state is State.HANDLING
 
 
 async def test_a_microphone_that_cannot_open_is_reported_not_left_listening():

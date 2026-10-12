@@ -35,14 +35,14 @@ def test_every_interface_has_its_place_in_the_design():
     for needed in ("api/control.py", "api/requests.py", "channels/voice.py", "channels/text.py", "llm/__init__.py",
                    "tts/engines.py", "platform/__init__.py", "core/memory.py", "core/learnings.py", "stt/base.py"):
         assert needed in DESIGN, f"{needed} is not in the interface table"
-    for pathway in ("Voice input", "Typing", "Commands (widget to daemon)", "Events (daemon to widget)", "Screen and mouse",
-                    "Dictation (F9)", "Wake word", "Approvals", "Music mode", "Releases and profiles"):
+    for pathway in ("Voice input (push-to-talk)", "Typing", "Commands (widget to daemon)", "Events (daemon to widget)", "Screen and mouse",
+                    "Dictation (F9)", "Approvals", "Music mode", "Releases and profiles"):
         assert f"### {pathway}" in DESIGN, f"no diagram for {pathway}"
 
 
 def test_the_diagrams_are_well_formed():
     blocks = re.findall(r"```mermaid\n(.*?)```", DESIGN, re.S)
-    assert len(blocks) >= 14
+    assert len(blocks) >= 13
     for b in blocks:
         assert re.match(r"(flowchart|sequenceDiagram|graph)\b", b.strip()), b[:40]
     assert DESIGN.count("```") % 2 == 0                                  # no unclosed fence swallowing the page

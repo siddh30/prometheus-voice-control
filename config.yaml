@@ -70,15 +70,8 @@ tts:
 conversation:
   model: claude-sonnet-4-6
   stt_model: base.en        # faster than dictation's small.en (~0.6s vs ~1.2s per sentence, ~2 pts less accurate)
-  silence_s: 1.4            # this much quiet after you speak = your turn is over (long enough to pause and think)
-  tentative_s: 0.9          # start transcribing after this much quiet; discarded if you keep talking
-  no_speech_s: 15           # nobody talks for this long = one "didn't catch that"; twice = the conversation ends
-  max_utterance_s: 45
   max_tokens: 400
   max_history_turns: 20
-  output: headphones        # auto | headphones | speakers   (you told me: headphones; "auto" can't recognise USB headphone amps)
-  barge_in: true            # on speakers: true = it hears you over its own voice (echo-aware), false = deaf while it speaks (F10 only)
-  barge_min_level: 0.04     # while it is speaking, your voice must be at least this loud (and 2x its echo)
 
 assistant:
   router: auto                     # auto = TypeSafe Jev when TYPESAFE_API_KEY is set, else the LLM | jev | llm
@@ -90,11 +83,6 @@ assistant:
     timeout_s: 4
     instant: true                  # Prometheus lets Jev run clearly instant commands without the model
     instant_confidence: 0.85
-
-wake_word:
-  enabled: true
-  word: prometheus          # say "Prometheus" (or "Prometheus, open Safari") to start the assistant hands-free
-  model: base.en            # small local model used only to spot the word; audio never leaves your Mac
 
 memory:
   cleanup_every_min: 60       # Prometheus tidies its memory every hour, but only when it is idle

@@ -9,7 +9,6 @@ from voicectl.core.events import EventBus
 from voicectl.core.maintenance import Maintenance
 from voicectl.core.memory import shared_memory
 from voicectl.core.session import SessionManager, State
-from voicectl.core.wake import WakeListener
 from voicectl.api import Control
 from voicectl.input.app_keys import handle_key
 from voicectl.input.hotkeys import HotkeyListener
@@ -120,19 +119,6 @@ async def run() -> None:
             else:
                 log.info("%s %s", ev.type, ev.data)
 
-    wake = None
-    if primary in mode_objs and config.get("wake_word.enabled", True):
-        import copy
-        wake_cfg = copy.deepcopy(config.raw)
-        wake_cfg.setdefault("stt", {}).setdefault("faster_whisper", {})["model"] = config.get("wake_word.model", "base.en")
-        wake_cfg["stt"]["backend"] = "faster_whisper"          # always local: this listens to the room all day, nothing may leave the Mac
-        wake_stt = backends.get("faster_whisper")(type(config)(wake_cfg))
-        await asyncio.to_thread(wake_stt.warm_up)
-        wake = WakeListener(config, bus, Mic(config.get("recording.sample_rate", 16000)), wake_stt,
-                            lambda: session.state is State.IDLE and not speaker.active,
-                            lambda rest, heard: session.wake(primary, rest, heard))
-        wake.start()
-
     @control.on("text")
     async def _text(cmd) -> None:
         typed = cmd["text"].strip()
@@ -141,18 +127,13 @@ async def run() -> None:
         if session.conversation_active():
             await mode_objs[primary].submit_text(typed)          # interrupts what it is saying or doing
         else:
-            session.wake(primary, typed)                          # not in a conversation yet: start one with your message
+            session.start_with_text(primary, typed)                # not in a conversation yet: start one with your message
 
     @control.on("input_mode")
     def _input_mode(cmd) -> None:
         mode = mode_objs.get(primary)
         if mode is not None and hasattr(mode, "set_typed_only"):
             mode.set_typed_only(cmd["mode"] == "typed")
-
-    @control.on("wake")
-    def _wake(cmd) -> None:
-        if wake:
-            wake.set_enabled(cmd["enabled"])
 
     control.start()
 
@@ -166,8 +147,6 @@ async def run() -> None:
         bridge_task.cancel()
         control.stop()
         maint.stop()
-        if wake:
-            wake.stop()
 
 
 def main() -> None:

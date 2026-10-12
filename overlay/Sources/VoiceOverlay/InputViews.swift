@@ -25,7 +25,7 @@ struct StatusRow: View {
                 .foregroundStyle(model.palette.a)
         }
         if !(model.phase == .idle && model.connected) {      // the resting pill is just the name
-            StatusGlyph(phase: model.phase, color: model.connected ? model.palette.a : .orange, connected: model.connected, speaking: model.speaking, wake: model.wakeListening, job: model.jobActive)
+            StatusGlyph(phase: model.phase, color: model.connected ? model.palette.a : .orange, connected: model.connected, speaking: model.speaking, job: model.jobActive)
         }
         Text(model.label)
             .lineLimit(1).fixedSize()
@@ -61,16 +61,17 @@ struct VoiceInputView: View {
     }
 }
 
-/// The spoken instructions under the caption; they belong to the voice kind only.
+/// What to press, under the caption. Talking is push-to-talk: F10 starts a recording and F10 again sends it, and
+/// starting a recording is also how you interrupt. These hints belong to the voice kind only.
 struct VoiceHint: View {
     @ObservedObject var model: OverlayModel
     var body: some View {
         if model.conversational && model.notice.isEmpty
             && (model.phase == .listening || model.phase == .thinking || model.phase == .acting || model.speaking || model.jobActive || model.phase == .music) {
-            Text(model.phase == .music ? "Say “Prometheus …” (or press F10) to talk to me"
-                 : model.jobActive ? "Working on it. Keep talking, say “stop” to cancel"
-                 : model.phase == .listening && !model.speaking ? "Say “goodbye” or press F10 to end"
-                                                                : (model.duplex == "half" ? "Press F10 to interrupt" : "Just start talking (or press F10) to interrupt"))
+            Text(model.phase == .listening ? "Press F10 again to send"
+                 : model.phase == .music ? "Press F10 to talk over it"
+                 : model.jobActive ? "Working on it. Press F10 to talk, or say “stop” to cancel"
+                                   : "Press F10 to interrupt, or type")
                 .font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.4))
         }
     }

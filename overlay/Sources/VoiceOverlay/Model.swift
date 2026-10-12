@@ -66,11 +66,9 @@ final class OverlayModel: ObservableObject {
     @Published var typing = false { didSet { if typing != oldValue { sendInputMode() } } }   // the type box is open = typing mode: voice is ignored
     @Published var voiceOn = true             // speak replies aloud, or show them as text only (e.g. on speakers)
     @Published var musicTitle = ""
-    @Published var duplex = "full"            // full | echo | half: whether talking over the assistant works by voice
     @Published var jobActive = false          // the agent is working in the background while we keep talking
     @Published var jobText = ""
     @Published var route: String? = nil       // assistant decision: action | agent | chat
-    @Published var wakeListening = false
     @Published var needsPermission = false     // hotkeys can't be captured yet
 
     private var clearTask: Task<Void, Never>?
@@ -164,7 +162,7 @@ final class OverlayModel: ObservableObject {
             mode = newMode
             requestPhase(s)
         case "transcript":
-            if let m = data["mode"] as? String { mode = m }   // e.g. the wake word arrives before any state event
+            if let m = data["mode"] as? String { mode = m }   // the transcript can arrive before any state event
             if conversational {
                 if !jobActive { plan = []; steps = [] }      // keep the agent's progress visible while you chat
                 result = ""; approval = nil; route = nil
@@ -204,12 +202,8 @@ final class OverlayModel: ObservableObject {
             voiceOn = (data["on"] as? Bool) ?? true
         case "music":
             musicTitle = (data["on"] as? Bool) == true ? ((data["title"] as? String) ?? "") : ""
-        case "duplex":
-            duplex = (data["mode"] as? String) ?? "full"
         case "route":
             route = data["kind"] as? String
-        case "wake":
-            wakeListening = (data["listening"] as? Bool) ?? false
         case "speaking":
             speaking = (data["on"] as? Bool) ?? false
         case "session":
@@ -254,10 +248,10 @@ final class OverlayModel: ObservableObject {
         if s == .idle && hadOutput && notice.isEmpty && phase != .idle && phase != .listening {
             phase = .done                       // hold a purple "result" state before fading to idle
             level = 0
-            scheduleClear(after: mode == "agent" ? 15 : 5)
+            scheduleClear(after: restSeconds)
         } else {
             phase = s
-            if s == .idle { level = 0; scheduleClear() }
+            if s == .idle { level = 0; scheduleClear(after: restSeconds) }
         }
     }
 
@@ -296,15 +290,26 @@ final class OverlayModel: ObservableObject {
         Task { try? await Task.sleep(nanoseconds: 900_000_000); self.flash = nil }
     }
 
-    private func scheduleClear(after seconds: Double = 6) {
+    /// How long the card stays after the last activity (F10 pressed, a reply finished) before shrinking back to the small pill.
+    /// Dictation results are glanced at, so they go sooner.
+    private var restSeconds: Double { conversational ? 30 : 5 }
+
+    private func scheduleClear(after seconds: Double) {
         clearTask?.cancel()
         clearTask = Task {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard !Task.isCancelled, self.phase == .idle || self.phase == .done, self.approval == nil else { return }
-            // Keep agent results visible longer; they are read, not glanced at.
-            
+            // Never shrink while something is going on (a reply being spoken, a background task, an approval, a recording):
+            // wait another round; the next time the widget goes idle this timer starts again from zero.
+            while !Task.isCancelled, !self.canShrink {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            }
+            guard !Task.isCancelled else { return }
             self.transcript = ""; self.notice = ""; self.plan = []; self.steps = []; self.result = ""; self.checklist = []
             self.phase = .idle
         }
+    }
+
+    private var canShrink: Bool {
+        (phase == .idle || phase == .done) && approval == nil && !speaking && !jobActive
     }
 }

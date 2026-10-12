@@ -147,7 +147,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let m = NSMenu()
         m.addItem(withTitle: "Open Phoenix traces", action: #selector(openPhoenix), keyEquivalent: "").target = self
         m.addItem(withTitle: "Restart voice daemon", action: #selector(restartDaemon), keyEquivalent: "").target = self
-        m.addItem(withTitle: wakePaused ? "Resume wake word" : "Pause wake word", action: #selector(toggleWake), keyEquivalent: "").target = self
         m.addItem(withTitle: model.voiceOn ? "Voice replies: on (click for text only)" : "Text only (click to hear replies)", action: #selector(toggleVoiceMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "New conversation (clean context)", action: #selector(newChatMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Start fresh (forget everything)", action: #selector(startFreshMenu), keyEquivalent: "").target = self
@@ -156,11 +155,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return m
     }
     @objc func openPhoenix() { NSWorkspace.shared.open(URL(string: "http://localhost:6006")!) }
-    var wakePaused = false
-    @objc func toggleWake() {
-        wakePaused.toggle()
-        if let j = Command.wake(enabled: !wakePaused).json { socket.send(j) }
-    }
     @objc func toggleVoiceMenu() { model.toggleVoice() }
     @objc func newChatMenu() { model.newConversation() }
     @objc func startFreshMenu() { model.startFresh() }

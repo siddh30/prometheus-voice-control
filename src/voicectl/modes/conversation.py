@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 import os
 import re
@@ -10,7 +9,6 @@ from collections.abc import AsyncIterator
 
 from voicectl import llm
 from voicectl.channels import TextChannel, VoiceChannel
-from voicectl.core.ears import Utterance
 from voicectl.core.memory import shared_memory
 from voicectl.core.timeline import TurnTimeline
 from voicectl.telemetry import phoenix as tel
@@ -175,14 +173,13 @@ class SentenceBuffer:
 
 @modes.register("conversation")
 class ConversationMode(Mode):
-    """Hands-free, full-duplex voice chat.
+    """Push-to-talk voice chat: press F10 to record, press F10 again to send. Nothing is listening in between.
 
     Two independent halves run for the whole conversation:
-      * the ears (core/ears.py): one mic stream that never closes, cutting what you say into utterances;
+      * the recorder (channels/voice.py): the microphone is open only while you record;
       * the mouth/brain: each reply is its own task (think, work, speak).
-    The instant the ears hear you start talking, the current reply is cancelled (speech stops, the agent is
-    interrupted) and what you say becomes the next request. Pressing the key does the same; pressing it while
-    nothing is happening, or saying goodbye, ends the conversation."""
+    Starting a recording cuts off whatever the assistant is saying or doing, so pressing the key is how you interrupt it.
+    Typing a message and pressing Enter interrupts the same way. Saying goodbye, or pressing Esc, ends the conversation."""
     name = "conversation"
     continuous = True
 
@@ -194,7 +191,7 @@ class ConversationMode(Mode):
         self._ending = False
         self._end = asyncio.Event()
         self._last_state: str | None = None
-        self.voice = VoiceChannel(ctx.config, ctx.bus, ctx.speaker, on_speech_start=self._on_speech_start,
+        self.voice = VoiceChannel(ctx.config, ctx.bus, ctx.speaker, on_start=self._on_record_start, on_discard=self._on_discard,
                                   quiet=lambda: self.text.recently_used())     # hearing you
         self.text = TextChannel()                                                # typing to it
         self._user_talking = False                     # you are mid-sentence: don't talk over you with announcements
@@ -218,35 +215,32 @@ class ConversationMode(Mode):
         """True while the conversation should stay open without hearing anything (music playing)."""
         return False
 
-    async def filter_utterance(self, text: str) -> str | None:
-        """Chance to ignore or rewrite what was heard before it becomes a turn (None = ignore silently)."""
-        return text
-
     def set_typed_only(self, on: bool) -> None:
         """Typing mode is exclusive: while the type box is open nothing is heard; closing it brings your voice back."""
         self.text.exclusive = on
         self.voice.pause(on)
 
-    def _on_speech_start(self) -> None:
-        """You started talking: cut off whatever the assistant is doing, right now."""
+    def press(self) -> None:
+        """The key: start recording, or send what was recorded."""
+        self.voice.press()
+
+    def _on_record_start(self) -> None:
+        """You started a recording: cut off whatever the assistant is doing, right now."""
         if self._ending:
-            return
-        if self.holding():                              # music: the "speech" is most likely the song; don't flicker or cut a reply
             return
         self._user_talking = True
         if self.keep_turn_on_speech():                # e.g. an approval question is waiting for your yes/no
             if self.ctx.speaker:
                 self.ctx.speaker.stop()               # stop talking so we can hear you, but keep the task alive
-            return
-        self._cut_off()
+        else:
+            self._cut_off()
         self._state("listening")
 
-    def interrupt(self) -> bool:
-        """Key press: cut the assistant off. True if it was busy; False means it was just waiting for you."""
-        if self._busy():
-            self._cut_off()
-            return True
-        return False
+    def _on_discard(self) -> None:
+        """The recording was too short or empty: back to waiting."""
+        self._user_talking = False
+        if not self._ending:
+            self._state("music" if self.holding() else "idle")
 
     def keep_turn_on_speech(self) -> bool:
         """True when hearing you must NOT cancel the running turn (it is waiting for your answer)."""
@@ -292,77 +286,40 @@ class ConversationMode(Mode):
         self.session_id = tel.new_session_id()                 # = the conversation's start time (epoch seconds): every trace carries it
         log.info("conversation session %s (started %s)", self.session_id, tel.session_label(self.session_id))
         self._end = asyncio.Event()
-        no_speech_s = cfg.get("conversation.no_speech_s", 15.0)
-        async def transcribe(audio) -> str:                    # runs speculatively inside the ears, before you've fully stopped
-            return await asyncio.to_thread(stt.transcribe, audio, mic.sample_rate)
-        await self.voice.decide_duplex()
-        ears = self.voice.open(mic, transcribe, paused=self.text.exclusive)
-        ears_task = asyncio.create_task(ears.run())
-        idle_since, misses = time.monotonic(), 0
+        recorder = self.voice.open(mic, paused=self.text.exclusive)
+        recorder_task = asyncio.create_task(recorder.run())
+        await asyncio.sleep(0)                      # let it start, so cancelling it later always runs its cleanup
         try:
             self._last_state = None
-            self._state("listening")
-            if initial:                             # woken with a command attached: "Prometheus, open Safari"
+            if initial:                             # started by typing: the message is the first request
                 bus.publish("transcript", text=initial, mode=self.name)
                 self._start_turn(initial)
             else:
-                self._start_turn(None, ack=greeting() if cfg.get("wake_word.enabled", True) else "I'm listening.")
+                self.voice.press()                  # the key that opened the conversation starts the first recording
             while not self._end.is_set():
                 try:
-                    audio = await asyncio.wait_for(ears.next(), 0.4)
+                    heard = await asyncio.wait_for(recorder.next(), 0.4)
                 except asyncio.TimeoutError:
-                    if self._busy():
-                        idle_since = time.monotonic()
-                    elif self.holding() or self.text.exclusive:
-                        idle_since = time.monotonic()          # music is playing, or you are typing: staying quiet is not 'nobody is here'
-                    elif time.monotonic() - idle_since >= no_speech_s:
-                        misses, idle_since = misses + 1, time.monotonic()
-                        if misses >= 2:               # two quiet windows (~30 s) in a row: nobody is there
-                            await self._goodbye(farewell())
-                            return
-                    continue
-                idle_since = time.monotonic()
-                self._user_talking = False                     # that utterance is finished
-                utt_obj = audio if isinstance(audio, Utterance) else None
-                text_task = audio.text_task if isinstance(audio, Utterance) else None
-                self._t_end = audio.speech_end_at if isinstance(audio, Utterance) and audio.speech_end_at else time.monotonic()
-                if isinstance(audio, Utterance):
-                    audio = audio.audio
+                    continue                            # the conversation stays open; the widget shrinks to its pill by itself
+                self._user_talking = False                     # that recording is finished
+                self._t_end = heard.speech_end_at or time.monotonic()
                 if self.ctx.speaker:
-                    self.ctx.speaker.wake()                    # wake the speakers while we think, so no lead-in delay later
-                if not self.holding():
-                    self._state("transcribing")
+                    self.ctx.speaker.warm_output()                    # wake the speakers while we think, so no lead-in delay later
+                self._state("transcribing")
                 try:
-                    text = await (text_task if text_task else asyncio.to_thread(stt.transcribe, audio, mic.sample_rate))
+                    text = await asyncio.to_thread(stt.transcribe, heard.audio, mic.sample_rate)
                 except Exception as e:
                     log.exception("transcription failed")
                     bus.publish("error", message=f"Transcription failed: {e}")
                     self._errors += 1
                     if self._errors >= 3:
                         break
-                    self._state("listening")
+                    self._state("idle")
                     continue
                 if not text:
-                    misses += 1
-                    if misses >= 3:
-                        await self._goodbye(farewell())
-                        return
-                    bus.publish("notice", text="Didn't catch that. Try again")
-                    self._start_turn(None, ack="Sorry, I didn't catch that.")
+                    bus.publish("notice", text="Didn't catch that. Press F10 and try again.")
+                    self._state("music" if self.holding() else "idle")
                     continue
-                gated = await self.filter_utterance(text) if text else text
-                if gated is None:
-                    continue                          # not addressed to us (e.g. lyrics while music plays): ignore, silently
-                text = gated
-                if self.voice.is_echo(text):
-                    log.info("ignoring my own voice picked up by the mic: %r", text[:60])
-                    if self.voice.words(text):                 # no English words = noise, not our voice: ignore it, don't blame the setup
-                        self.voice.note_self_heard()
-                    if getattr(utt_obj, "engaged", False):
-                        self._on_false_barge()
-                    self._state("listening" if not self._busy() else "thinking")
-                    continue
-                misses = 0
                 self._t_text = time.monotonic()
                 bus.publish("transcript", text=text, mode=self.name)
                 if is_goodbye(text):
@@ -372,13 +329,14 @@ class ConversationMode(Mode):
                     continue
                 self._start_turn(text)
             await self._goodbye("I keep running into errors, so I'll stop for now.")
-        except asyncio.CancelledError:                  # ended by key/Esc: silence immediately
+        except asyncio.CancelledError:                  # ended by Esc: silence immediately
             self._ending = True
             self._cut_off()
             raise
         finally:
-            ears_task.cancel()
-            await asyncio.gather(ears_task, return_exceptions=True)     # releases the mic
+            recorder.cancel()                                               # a recording in progress is dropped, the mic released
+            recorder_task.cancel()
+            await asyncio.gather(recorder_task, return_exceptions=True)
             await self._drop_turn()
 
     async def _drop_turn(self) -> None:
@@ -433,10 +391,10 @@ class ConversationMode(Mode):
             max_turns = self.ctx.config.get("conversation.max_history_turns", 20)
             self.history = self.history[-2 * max_turns:]
         finally:
-            # The mic never closed, so just say we're listening again, but only the newest turn announces it
-            # (a turn cancelled by your voice is about to be replaced; announcing would make the widget flicker).
-            if not self._ending and self._turn is asyncio.current_task():
-                self._state("music" if self.holding() else "listening")
+            # Back to waiting for your next press, but only the newest turn announces it
+            # (a turn cut off by a new recording is about to be replaced; announcing would make the widget flicker).
+            if not self._ending and self._turn is asyncio.current_task() and not self.voice.recording:
+                self._state("music" if self.holding() else "idle")        # (not while you are recording: that is "listening")
 
     def _log_latency(self) -> None:
         spk = self.ctx.speaker

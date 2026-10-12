@@ -2,6 +2,7 @@ import asyncio
 
 import numpy as np
 
+from voicectl.channels.voice import Utterance
 from voicectl.core.config import Config
 from voicectl.core.events import EventBus
 from voicectl.modes.base import ModeContext
@@ -13,15 +14,17 @@ class FakeMic:
 
 
 class FakeEars:
-    """Scripted listener: the test pushes finished utterances and can fire the 'you started talking' signal."""
-    def __init__(self): self.q = asyncio.Queue(); self.stopped = False
+    """Scripted recorder: the test pushes finished recordings (as tag strings) and can fire the 'recording started' signal."""
+    def __init__(self): self.q = asyncio.Queue(); self.stopped = False; self.paused = False; self.recording = False; self.presses = 0
     async def run(self):
         try:
             await asyncio.sleep(3600)
         finally:
             self.stopped = True
     async def next(self): return await self.q.get()
-    def say(self, tag): self.q.put_nowait(tag)
+    def press(self): self.presses += 1
+    def cancel(self): pass
+    def say(self, tag): self.q.put_nowait(Utterance(tag))
 
 
 class STT:
@@ -29,13 +32,13 @@ class STT:
     def transcribe(self, audio, sr): return audio
 
 
-def make(respond, no_speech_s=30):
-    cfg = Config({"tts": {"enabled": False}, "conversation": {"no_speech_s": no_speech_s, "output": "headphones"}, "wake_word": {"enabled": False}})
+def make(respond):
+    cfg = Config({"tts": {"enabled": False}, "conversation": {}})
     bus = EventBus()
     m = ConversationMode(ModeContext(cfg, bus))
     m.respond = respond
     ears = FakeEars()
-    m.voice.make_ears = lambda mic, transcribe=None: ears
+    m.voice.make_recorder = lambda mic: ears
     return m, ears, bus
 
 
@@ -83,7 +86,7 @@ async def test_hearing_you_start_talking_cuts_the_reply_off_immediately():
     run = await start(m)
     ears.say("long one")
     await started.wait()
-    m._on_speech_start()                         # what the ears do the instant you begin to talk
+    m._on_record_start()                         # what the ears do the instant you begin to talk
     await settle()
     assert cancelled == ["long one"] and not m._busy()
     ears.say("goodbye")
@@ -110,17 +113,20 @@ async def test_new_utterance_replaces_the_running_reply():
     assert [h["content"] for h in m.history][:4] == ["first", "(interrupted by the user)", "actually, second", "re: actually, second"]
 
 
-async def test_key_interrupt_only_when_busy():
+async def test_the_key_goes_to_the_recorder_and_cutting_off_happens_when_a_recording_starts():
     started = asyncio.Event()
     async def respond(t):
         started.set(); await asyncio.sleep(30)
     m, ears, _ = make(respond)
-    assert m.interrupt() is False                # nothing running
     run = await start(m)
-    ears.say("go"); await started.wait()
-    assert m.interrupt() is True                 # busy: cut it off, conversation continues
     await settle()
-    assert not m._busy() and not run.done()
+    assert ears.presses == 1                     # the key that opened the conversation starts its first recording
+    ears.say("go"); await started.wait()
+    m.press()
+    assert ears.presses == 2 and m._busy()       # the press only reaches the recorder...
+    m._on_record_start()                         # ...which, once the microphone is open, cuts the reply off
+    await settle()
+    assert not m._busy() and not run.done()      # the conversation continues
     ears.say("goodbye")
     await asyncio.wait_for(run, 3)
 
@@ -153,19 +159,27 @@ async def test_error_does_not_end_the_conversation_but_three_do():
     await asyncio.wait_for(run2, 3)              # ends itself after three in a row
 
 
-async def test_two_quiet_windows_end_it_instead_of_hanging():
-    async def respond(t): return "ok"
-    m, ears, _ = make(respond, no_speech_s=0.5)
-    run = await start(m)
-    await asyncio.wait_for(run, 5)
-
-
-async def test_unintelligible_audio_does_not_loop_forever():
+async def test_an_unused_conversation_stays_open_it_is_only_the_widget_that_shrinks():
     async def respond(t): return "ok"
     m, ears, _ = make(respond)
     run = await start(m)
+    await asyncio.sleep(1.2)                                           # long past any old idle timeout
+    assert not run.done()                                              # still there: F10 picks up where you left off
+    ears.say("goodbye")
+    await asyncio.wait_for(run, 3)
+
+
+async def test_an_empty_recording_gets_a_hint_and_waits_instead_of_ending_the_conversation():
+    async def respond(t): return "ok"
+    m, ears, bus = make(respond)
+    notices = []
+    bus.publish = lambda t, **d: notices.append((t, d))
+    run = await start(m)
     for _ in range(4):
         ears.say(""); await settle(0.1)
+    assert not run.done()                                              # still open: you can press F10 and try again
+    assert sum(1 for t, d in notices if t == "notice" and "Didn't catch that" in d["text"]) == 4
+    ears.say("goodbye")
     await asyncio.wait_for(run, 3)
 
 
@@ -191,17 +205,17 @@ async def test_the_farewell_is_not_cut_off_by_the_ears():
     class Spk:
         active = False
         first_audio_at = 0.0
-        def wake(self): pass
+        def warm_output(self): pass
         async def speak(self, text):
             spoken.append(("start", text))
-            m._on_speech_start()                  # the ears fire while it is talking (e.g. echo)
+            m._on_record_start()                  # the ears fire while it is talking (e.g. echo)
             await asyncio.sleep(0.1)
             spoken.append(("end", text))
         def stop(self): spoken.append(("stop",))
     m.ctx.speaker = Spk()
     async def respond(t): return "ok"
     m.respond = respond
-    ears = FakeEars(); m.voice.make_ears = lambda mic, transcribe=None: ears
+    ears = FakeEars(); m.voice.make_recorder = lambda mic: ears
     run = await start(m)
     await settle(0.3)                              # the "I'm listening." ack finished
     spoken.clear()
@@ -249,7 +263,7 @@ async def test_state_is_not_repeated_so_the_widget_cannot_blink():
     w = asyncio.create_task(watch()); await asyncio.sleep(0)
     run = await start(m)
     ears.say("hello"); await settle(0.1)
-    m._on_speech_start(); m._on_speech_start()                 # repeated signals
+    m._on_record_start(); m._on_record_start()                 # repeated signals
     ears.say("goodbye")
     await asyncio.wait_for(run, 3); w.cancel()
     assert all(a != b for a, b in zip(states, states[1:])), states

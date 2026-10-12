@@ -2,143 +2,145 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
-from voicectl.core.audio_output import wearing_headphones
-from voicectl.core.ears import Ears
-from voicectl.core.echo import TalkOverDetector
+import numpy as np
+
 from voicectl.core.events import EventBus
-from voicectl.core.vad import VadEndpointer
 
 log = logging.getLogger("voicectl.voice")
 
-STEP_DOWN = {"full": "echo", "echo": "half"}
+
+@dataclass
+class Utterance:
+    audio: np.ndarray
+    speech_end_at: float = 0.0                 # monotonic time you stopped talking (for latency logging)
+
+
+class PushRecorder:
+    """Press once to start recording, press again to send. The microphone is open only in between, so there is nothing
+    to listen for, nothing to echo-cancel and no wake word. Starting a recording cuts off whatever the assistant was
+    saying or doing (`on_start`), so pressing the key is also how you interrupt it."""
+
+    def __init__(self, mic, *, on_start: Callable[[], None] = lambda: None, on_discard: Callable[[], None] = lambda: None,
+                 on_problem: Callable[[str], None] = lambda kind: None, min_s: float = 0.3, max_s: float = 120.0,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self.mic, self.on_start, self.on_discard, self.on_problem = mic, on_start, on_discard, on_problem
+        self.min_s, self.max_s, self.clock = min_s, max_s, clock
+        self.paused = False                       # typing mode: presses are ignored and the mic is never opened
+        self.recording = False
+        self._t0 = 0.0
+        self._cap: asyncio.Task | None = None
+        self._queue: asyncio.Queue[Utterance] = asyncio.Queue()
+
+    async def next(self) -> Utterance:
+        """The next finished recording (waits)."""
+        return await self._queue.get()
+
+    async def run(self) -> None:
+        """Lives as long as the conversation; releases the microphone when it ends."""
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancel()
+
+    def press(self) -> None:
+        if self.paused:
+            return
+        self._finish() if self.recording else self._begin()
+
+    def _begin(self) -> None:
+        self.on_start()                           # stop talking / working first: our voice must not be in your recording
+        try:
+            self.mic.start()
+        except Exception as e:                    # no usable microphone: say so instead of sitting in "listening" forever
+            log.error("microphone failed to open: %s", e)
+            self.on_problem("unavailable")
+            self.on_discard()
+            return
+        self.recording, self._t0 = True, self.clock()
+        self._cap = asyncio.get_running_loop().create_task(self._limit())
+
+    async def _limit(self) -> None:
+        await asyncio.sleep(self.max_s)           # a forgotten recording ends itself
+        if self.recording:
+            self._finish()
+
+    def _finish(self) -> None:
+        held = self.clock() - self._t0
+        audio = self._release()
+        peak = float(np.abs(audio).max()) if audio.size else 0.0
+        if held < self.min_s or audio.size == 0:
+            self.on_problem("too_short" if held < self.min_s else "no_audio")
+            self.on_discard()
+            return
+        if peak < 0.005:
+            self.on_problem("silent")             # recorded, but the mic returned silence: permission or input device
+        self._queue.put_nowait(Utterance(audio, speech_end_at=self.clock()))
+
+    def _release(self) -> np.ndarray:
+        if self._cap:
+            self._cap.cancel()
+            self._cap = None
+        self.recording = False
+        try:
+            return self.mic.stop()
+        except Exception:
+            return np.zeros(0, "float32")
+
+    def cancel(self) -> None:
+        """Drop a recording in progress without sending it (Escape, typing mode, the conversation ending)."""
+        if self.recording:
+            self._release()
 
 
 class VoiceChannel:
-    """Everything about HEARING you: the always-open mic stream (ears), whether the speakers' echo can be told apart
-    from you (duplex: full | echo | half), catching our own voice, and the health of the microphone.
+    """Everything about HEARING you: push-to-talk recording and the health of the microphone.
     It knows nothing about turns, agents or the widget layout; the conversation gives it callbacks."""
 
-    def __init__(self, config, bus: EventBus, speaker, *, on_speech_start: Callable[[], None],
+    def __init__(self, config, bus: EventBus, speaker, *, on_start: Callable[[], None], on_discard: Callable[[], None] = lambda: None,
                  quiet: Callable[[], bool] = lambda: False) -> None:
         self.config, self.bus, self.speaker = config, bus, speaker
-        self.on_speech_start = on_speech_start
+        self.on_start, self.on_discard = on_start, on_discard
         self.quiet = quiet                          # True while the mic doesn't matter (you are typing): no mic warnings
-        self.duplex = "half"                        # full (headphones) | echo (speakers, echo-aware) | half (speakers, deaf while it speaks)
-        self.detector: TalkOverDetector | None = None
-        self.ears: Ears | None = None
-        self.self_heard = 0                         # times the mic caught our own voice this conversation
-        self.false_barges = 0                       # times we cut ourselves off for nothing
-        self.make_ears = self._default_ears         # tests substitute a scripted listener
+        self.recorder: PushRecorder | None = None
+        self.make_recorder = self._default_recorder  # tests substitute a scripted recorder
 
-    # ---- the listener ----
-    def open(self, mic, transcribe, *, paused: bool = False) -> Ears:
-        self.ears = self.make_ears(mic, transcribe)
-        self.ears.paused = paused                   # typing mode: don't even open the microphone
-        return self.ears
+    # ---- the recorder ----
+    def open(self, mic, *, paused: bool = False) -> PushRecorder:
+        self.recorder = self.make_recorder(mic)
+        self.recorder.paused = paused               # typing mode: the microphone is never opened
+        return self.recorder
+
+    def press(self) -> None:
+        """The key: start recording, or send what was recorded."""
+        if self.recorder:
+            self.recorder.press()
 
     def pause(self, on: bool) -> None:
-        if self.ears:
-            self.ears.paused = on
+        if self.recorder:
+            self.recorder.paused = on
+            if on:
+                self.recorder.cancel()              # typing mode begins: drop a recording in progress
 
-    def _default_ears(self, mic, transcribe=None) -> Ears:
-        cfg, sr, speaker = self.config, mic.sample_rate, self.speaker
+    @property
+    def recording(self) -> bool:
+        return bool(self.recorder and self.recorder.recording)
 
-        def vad_factory(base: int) -> VadEndpointer:
-            return VadEndpointer(sr, silence_s=cfg.get("conversation.silence_s", 0.6), no_speech_s=1e9,
-                                 max_s=cfg.get("conversation.max_utterance_s", 45.0), base_sample=base)
-        return Ears(mic, vad_factory, (lambda: speaker.active) if speaker else (lambda: False),
-                    min_gate=cfg.get("conversation.barge_min_level", 0.04), on_speech_start=self.on_speech_start,
-                    transcribe=transcribe, tentative_s=cfg.get("conversation.tentative_s", 0.3), deaf=self.deaf,
-                    talk_over=self.detector, on_mic_problem=self.on_mic_problem, on_false_barge=self.on_false_barge)
-
-    def deaf(self) -> bool:
-        """When the mic must be thrown away: on speakers, while we speak (half) or just after we stop (echo tail)."""
-        spk = self.speaker
-        if spk is None or self.duplex == "full":
-            return False
-        guard = spk.quiet_for() < self.config.get("conversation.echo_guard_s", 0.8)
-        if self.duplex == "half":
-            return spk.active or guard
-        return (not spk.active) and guard                # echo mode listens WHILE we speak; only the fading tail is ignored
-
-    # ---- headphones or speakers? ----
-    async def decide_duplex(self) -> None:
+    def _default_recorder(self, mic) -> PushRecorder:
         cfg = self.config
-        output = cfg.get("conversation.output", "auto")        # auto | headphones | speakers
-        if output == "auto":
-            output = "headphones" if await asyncio.to_thread(wearing_headphones) else "speakers"
-        if output == "headphones":
-            self.duplex = "full"                                # no echo: talk over it freely
-        elif cfg.get("conversation.barge_in", True) in (False, "false", "off"):
-            self.duplex = "half"                                # speakers, voice interruption off: F10 only
-        else:
-            self.duplex = "echo"                                # speakers: predict our own echo and hear you on top of it
-        reference = getattr(self.speaker, "reference", None)
-        if self.duplex == "echo" and reference is None:          # no way to know what we play: fall back to the safe style
-            self.duplex = "half"
-        self.detector = TalkOverDetector(reference) if self.duplex == "echo" else None
-        log.info("audio: %s", {"full": "headphones, talking over it is free", "echo": "speakers, echo-aware (it hears you over its own voice)",
-                               "half": "speakers, deaf while it speaks (F10 interrupts)"}[self.duplex])
-        self.bus.publish("duplex", mode=self.duplex)
+        return PushRecorder(mic, on_start=self.on_start, on_discard=self.on_discard, on_problem=self.on_mic_problem,
+                            min_s=cfg.get("recording.min_hold_ms", 300) / 1000, max_s=cfg.get("recording.max_hold_s", 120))
 
-    # ---- did we just hear ourselves? ----
-    @staticmethod
-    def words(text: str) -> list[str]:
-        return re.findall(r"[a-z0-9']+", text.lower())
-
-    def is_echo(self, text: str) -> bool:
-        """Did the mic just catch our own voice? Compare what we heard with what we recently said."""
-        spoken = list(getattr(self.speaker, "spoken", []) or [])
-        if not spoken:
-            return False
-        now, words = time.monotonic(), self.words(text)
-        if not words:
-            return True
-        recent = [(ts, t) for ts, t in spoken if now - ts < 90]
-        if len(words) <= 2:                                          # too short to judge: only if it is exactly our last words, just now
-            last_ts, last_text = recent[-1] if recent else (0.0, "")
-            return now - last_ts < 3 and all(w in self.words(last_text) for w in words)
-        pool = {w for _, t in recent for w in self.words(t)}
-        return sum(w in pool for w in words) / len(words) >= 0.8
-
-    # ---- self-diagnosis: the microphone is a shared, fragile thing; adapt on evidence instead of assuming ----
-    def step_down(self, why: str) -> None:
-        """We keep hearing ourselves, so the assumed setup is wrong. Move to the next safer listening style and say so."""
-        new = STEP_DOWN.get(self.duplex)
-        if new == "echo" and getattr(self.speaker, "reference", None) is None:
-            new = "half"
-        if new is None:
-            return
-        old, self.duplex = self.duplex, new
-        reference = getattr(self.speaker, "reference", None)
-        self.detector = TalkOverDetector(reference) if new == "echo" and reference is not None else None
-        if self.ears:
-            self.ears.talk_over = self.detector
-        self.self_heard = self.false_barges = 0
-        label = {"echo": "listening while I speak, but ignoring my own voice", "half": "not listening while I speak (press F10 to interrupt)"}[new]
-        log.warning("audio: %s -> %s (%s)", old, new, why)
-        self.bus.publish("duplex", mode=new)
-        self.bus.publish("notice", text=f"I kept hearing myself, so I'm now {label}.")
-
-    def note_self_heard(self) -> None:
-        self.self_heard += 1
-        if self.self_heard >= 2:
-            self.step_down("the mic caught our own voice twice")
-
-    def on_false_barge(self) -> None:
-        self.false_barges += 1
-        if self.false_barges >= 2 and self.duplex == "echo":
-            self.step_down("two false interruptions")
-
+    # ---- the microphone is a shared, fragile thing: say what is wrong in plain words ----
     def on_mic_problem(self, kind: str) -> None:
-        texts = {"restarted": "The microphone changed, so I reconnected to it.",
-                 "silent": "I'm getting no sound from the microphone. Check the input device and Microphone permission.",
-                 "unavailable": "I can't reach the microphone right now. Check that it's connected."}
+        texts = {"silent": "I'm getting no sound from the microphone. Check the input device and Microphone permission.",
+                 "unavailable": "I can't reach the microphone. Check that it's connected and that Microphone access is allowed.",
+                 "too_short": "That was too short. Press F10, speak, then press F10 again.",
+                 "no_audio": "The microphone returned no audio. Check the input device in System Settings > Sound."}
         log.warning("microphone: %s", kind)
-        if kind == "silent" and self.quiet():
-            return                                      # you are typing to it, so a quiet mic is not a problem worth a warning
-        self.bus.publish("notice" if kind != "unavailable" else "error", **({"text": texts[kind]} if kind != "unavailable" else {"message": texts[kind]}))
+        if kind in ("silent", "too_short") and self.quiet():
+            return                                  # you are typing to it, so the microphone is not a problem worth a warning
+        self.bus.publish("error" if kind == "unavailable" else "notice", **({"message": texts[kind]} if kind == "unavailable" else {"text": texts[kind]}))

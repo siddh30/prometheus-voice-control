@@ -13,7 +13,6 @@ from voicectl.agents.complexity import Complexity, hint_block, heuristic
 from voicectl.agents.runner import Finished, TextDelta, TextEnd, TextStart
 from voicectl.agents.shared import runner_for
 from voicectl import llm
-from voicectl.core.wake import find_wake
 from voicectl.modes.base import ModeContext, modes
 from voicectl.modes.conversation import ConversationMode, sentences
 from voicectl.core.config import ROOT
@@ -139,8 +138,7 @@ class PrometheusMode(ConversationMode):
         super().__init__(ctx)
         actions.discover(actions_pkg)
         self._approval_watch: asyncio.Task | None = None
-        self.music: dict | None = None             # while a song/video plays: keep listening, but only act when addressed by name
-        self._attend_until = 0.0
+        self.music: dict | None = None             # while a song/video plays: the widget shows it; press F10 to talk over it
         self._music_watch: asyncio.Task | None = None
         self._side_notes: list[str] = []          # things done outside the agent (instant actions) it should know about
         self.jev = (JevDecider(min_confidence=ctx.config.get("assistant.jev.instant_confidence", 0.85), timeout_s=0.7,
@@ -166,39 +164,9 @@ class PrometheusMode(ConversationMode):
     def agent_status(self) -> str:
         return self._runner().status()
 
-    # ---- music mode: the song keeps playing and we keep listening, but only act when addressed by name ----
+    # ---- music mode: the song keeps playing; the widget shows it, and F10 records over it as usual ----
     def holding(self) -> bool:
         return self.music is not None
-
-    def interrupt(self) -> bool:
-        if super().interrupt():
-            return True
-        if self.music is not None:                       # the key during music = "the next thing I say is for you" (no name needed)
-            self._attend_until = self.ctx.config and time.monotonic() + self.ctx.config.get("music.attend_s", 8.0)
-            self._state("music")
-            self.ctx.bus.publish("attend", on=True)
-            return True
-        return False
-
-    async def filter_utterance(self, text: str) -> str | None:
-        """While music plays, lyrics and background sound must not be taken for commands: only "Prometheus, ..." counts
-        (or anything said within a few seconds of pressing the key). Everything else is ignored silently."""
-        if self.music is None:
-            return text
-        if time.monotonic() < self._attend_until:
-            self._attend_until = 0.0
-            self.ctx.bus.publish("attend", on=False)
-            return text
-        found, rest = find_wake(text, self.ctx.config.get("wake_word.word", "prometheus"))
-        if not found:
-            log.debug("music mode: ignoring %r (not addressed to me)", text[:50])
-            return None
-        if not rest.strip():                              # just the name: "yes?", and the next sentence needs no name
-            self._attend_until = time.monotonic() + self.ctx.config.get("music.attend_s", 8.0)
-            self.ctx.bus.publish("attend", on=True)
-            self._start_turn(None, ack="Yes, go ahead." if self._attend_until else "I'm here.")
-            return None
-        return rest
 
     @staticmethod
     def _parse_media(raw: str) -> dict | None:
@@ -234,18 +202,17 @@ class PrometheusMode(ConversationMode):
         self.ctx.shared["music_playing"] = True
         self._state("music")
         self.ctx.bus.publish("music", on=True, title=self.music["title"])
-        log.info("music mode: %r is playing; I only act on what starts with my name (or after the key)", self.music["title"][:60])
+        log.info("music mode: %r is playing", self.music["title"][:60])
         self._music_watch = asyncio.create_task(self._watch_music())
 
     def _exit_music(self) -> None:
         if self.music is None:
             return
         self.music = None
-        self._attend_until = 0.0
         self.ctx.shared["music_playing"] = False
         self.ctx.bus.publish("music", on=False, title="")
         if not self._ending:
-            self._state("listening")
+            self._state("idle")
 
     async def _watch_music(self) -> None:
         """The song ended, the tab closed or someone paused it: back to normal listening."""

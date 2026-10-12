@@ -133,7 +133,7 @@ async def test_wake_plays_silence_in_the_background_only_after_idle(monkeypatch,
         return P()
     monkeypatch.setattr(spk.asyncio, "create_subprocess_exec", fake_exec)
     spk.Speaker._last_end = 0.0
-    sp.wake(); await asyncio.sleep(0.05)
+    sp.warm_output(); await asyncio.sleep(0.05)
     assert len(launched) == 1 and launched[0][0] == "afplay"
-    sp.wake(); await asyncio.sleep(0.05)
+    sp.warm_output(); await asyncio.sleep(0.05)
     assert len(launched) == 1                                         # already awake: nothing more to do

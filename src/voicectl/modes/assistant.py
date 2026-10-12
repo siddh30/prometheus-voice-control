@@ -66,14 +66,6 @@ class AssistantMode(ConversationMode):
     def _job_running(self) -> bool:
         return self.job is not None and not self.job.done()
 
-    def interrupt(self) -> bool:
-        if super().interrupt():                               # key: cut the speech/reply first
-            return True
-        if self._job_running():                               # nothing speaking: the key stops the running task
-            self.job.cancel()
-            return True
-        return False
-
     async def _start_job(self, text: str) -> str:
         if self._job_running():                               # "actually, do X instead": replace it (the agent keeps its memory)
             await self._stop_job(quiet=True)

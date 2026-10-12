@@ -1,6 +1,6 @@
 # Prometheus: a voice assistant for macOS that talks *and* acts
 
-Say **"Prometheus"** and just talk. It answers out loud, and it can also *do* things: search YouTube and play a song, switch to a tab, scroll a page, fill a form, click what it sees on screen, read a file. It runs in **your own, already-logged-in Chrome**, narrates what it is doing, shows a plan for bigger jobs, and you can interrupt it any time by talking over it or typing.
+Press **F10**, talk, and press **F10** again. It answers out loud, and it can also *do* things: search YouTube and play a song, switch to a tab, scroll a page, fill a form, click what it sees on screen, read a file. It runs in **your own, already-logged-in Chrome**, narrates what it is doing, shows a plan for bigger jobs, and you can interrupt it any time by pressing F10 or typing. Nothing listens in between: the microphone is open only while you record.
 
 It also remembers. It keeps what it knows about you, and it learns from what worked and what failed on the sites it visits, so it takes fewer steps next time.
 
@@ -10,7 +10,7 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 
 | | |
 |---|---|
-| **Prometheus** (wake word, or **F10**) | A hands-free conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
+| **Prometheus** (**F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
 | **Dictate** (**F9**) | Press, talk, press again: your words are typed at the cursor in any app. |
 | **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, start fresh. |
 
@@ -36,7 +36,7 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 
 Things it does well:
 
-- **Talk over it.** It listens while it speaks (full duplex). Start talking and it stops and follows your newest sentence. On speakers it ignores its own voice.
+- **Interrupt it.** Press F10 (or type and press Enter) while it speaks or works: it stops and follows your newest request. The microphone is closed whenever you are not recording, so there is nothing to talk over and no wake word.
 - **Right amount of ceremony.** A question gets a one-line answer; a one-step action gets one sentence; a multi-step job gets a checklist.
 - **No permission nagging.** Ordinary things (open, search, click, play) just happen. Only money, sending and deleting are gated.
 - **Operates the browser like a person**: switches tabs, uses shortcuts, goes straight to the right URL, and falls back to the real mouse when a page element can't be clicked.
@@ -62,10 +62,9 @@ flowchart LR
         BUS[(Event bus)]
         WS[WebSocket bridge]
         SM[Session manager<br/>state machine]
-        EARS[Ears<br/>mic stream + VAD + barge-in]
+        REC[Push-to-talk recorder<br/>F10 starts, F10 sends]
         STT[Speech-to-text<br/>OpenAI Whisper or local faster-whisper]
         TTS[Speaker<br/>Edge neural TTS, word-timed captions]
-        WAKE[Wake-word listener<br/>local model only]
         subgraph Modes
             DICT[Dictate]
             PROM[Prometheus]
@@ -91,8 +90,7 @@ flowchart LR
     SC <--> WS
     SUP --> Daemon
     SM --> Modes
-    EARS --> STT --> PROM
-    WAKE --> SM
+    REC --> STT --> PROM
     PROM --> JEV
     PROM --> RUN
     RUN --> BT --> CH
@@ -110,15 +108,15 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant U as You
-    participant E as Ears (VAD + mic)
+    participant E as Recorder (F10)
     participant S as STT
     participant P as Prometheus
     participant J as Jev
     participant A as Agent (Claude)
     participant T as Speaker
 
-    U->>E: speaks
-    E->>S: audio (speculative transcription after a short pause)
+    U->>E: presses F10, speaks, presses F10
+    E->>S: the recording
     S->>P: text
     P->>J: instant command? complexity? risk?
     alt exact one-step command ("open Safari", "volume 30")
@@ -132,9 +130,9 @@ sequenceDiagram
             P-->>U: step shown on the widget
         end
     end
-    U-->>E: talks over it
+    U-->>E: presses F10 (or types and presses Enter)
     E-->>T: stop speaking at once
-    E-->>A: cancel, newest sentence becomes the instruction
+    E-->>A: cancel, the new request becomes the instruction
 ```
 
 Full design, memory model, safety and the extension points: **[DESIGN.md](DESIGN.md)**.
@@ -186,10 +184,10 @@ Then:
 
 | You say / do | What happens |
 |---|---|
-| "Prometheus, play Daft Punk on YouTube" | Opens the search in a tab, picks the real result, plays it. It keeps listening but only reacts when you say its name. |
+| "Play Daft Punk on YouTube" | Opens the search in a tab, picks the real result, plays it. The song keeps playing; press F10 to talk over it. |
 | "Switch to my LinkedIn tab and scroll down" | Uses the tab and scroll tools, and reports if the page didn't move. |
 | "Open it in another tab" | Does exactly that and stops. |
-| Talk over it, press F10, or click the keyboard button and type | Interrupts and follows your newest instruction. |
+| Press F10, or click the keyboard button and type | Interrupts and follows your newest instruction. |
 | "Thanks, that's all" / "bye" | Ends the conversation with a friendly goodbye. |
 | "New conversation" or "you're stuck" | Clean context, keeps what it knows about you. |
 | "Start fresh" / "forget everything" | Wipes conversations and facts (it keeps what it learned about *how* to do things). |
@@ -213,7 +211,7 @@ stt:
 
 ## Privacy and safety
 
-- **What leaves your Mac:** your speech and text go to the speech, language-model and voice providers you configure, and agent traffic goes to Anthropic. The always-on **wake-word listener runs on-device only**; room audio is not sent anywhere until it hears its name.
+- **What leaves your Mac:** your speech and text go to the speech, language-model and voice providers you configure, and agent traffic goes to Anthropic. **Nothing listens in the background**: the microphone is open only while you record, and there is no wake word.
 - **Your data stays local:** memory, learnings, the voice cache, traces and logs live in `~/Library/Application Support/VoiceControl/` and are git-ignored. Keys live in `.env`.
 - **It controls your real browser, mouse and keyboard.** It asks before anything that spends money, sends something or deletes. Page content is treated as data, not instructions, but no prompt-injection defence is perfect: do not point it at untrusted pages while logged in to sensitive accounts.
 - Use at your own risk; this is a personal project and not a security-audited product.

@@ -9,7 +9,6 @@ COMMANDS: dict[str, dict[str, tuple[type, bool]]] = {
     "text":         {"text": (str, True)},                       # a typed message: interrupts and becomes the newest instruction
     "input_mode":   {"mode": (str, True)},                       # "typed" (type box open: voice ignored) | "voice"
     "voice":        {"on": (bool, True)},                        # speak replies aloud, or text only
-    "wake":         {"enabled": (bool, True)},                   # wake word on/off
     "newchat":      {},                                          # fresh conversation, memory kept
     "fresh":        {},                                          # forget everything
     "maintenance":  {},                                          # tidy memory now

@@ -42,7 +42,7 @@ class FakeSpeaker:
         async for c in chunks:
             self.said.append(c)
     def stop(self): ...
-    def wake(self): ...
+    def warm_output(self): ...
     def prefetch(self, t): ...
 
 
@@ -162,14 +162,14 @@ async def test_chat_that_recognises_a_task_hands_it_to_the_agent_instead_of_refu
     runner.finish.set(); await settle(0.1)
 
 
-async def test_key_stops_the_job_when_nothing_else_is_going_on(monkeypatch):
+async def test_pressing_the_key_does_not_stop_a_running_job(monkeypatch):
+    """F10 is for talking: you can give instructions while it works, and say "stop" to cancel (the spoken stop is tested above)."""
     m, runner, spk, bus = make(monkeypatch, [Route("agent")])
     runner.finish = asyncio.Event()
     await m.respond("search linkedin"); await runner.started.wait()
-    assert m.interrupt() is True                                  # F10 with only the job running: stop it
+    m.press()
     await settle(0.1)
-    assert not m._job_running() and runner.interrupted == 1
-    assert m.interrupt() is False                                 # now idle: the next press ends the conversation
+    assert m._job_running() and runner.interrupted == 0
 
 
 async def test_chat_knows_what_the_agent_is_doing(monkeypatch):
