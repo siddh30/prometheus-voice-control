@@ -1,207 +1,10 @@
-# Prometheus: a voice assistant for macOS that talks *and* acts
+# Prometheus Swarm: one voice request, several of your Macs
 
-Press **F10**, talk, and press **F10** again. It answers out loud, and it can also *do* things: search YouTube and play a song, switch to a tab, scroll a page, fill a form, click what it sees on screen, read a file. It runs in **your own, already-logged-in Chrome**, narrates what it is doing, shows a plan for bigger jobs, and you can interrupt it any time by pressing F10 or typing. Nothing listens in between: the microphone is open only while you record.
+**Prometheus Swarm** sends what you say to the right computer, or to several at once, and shows each one's progress on one card. You press **F10**, talk, press **F10** again. The computer you speak on understands you once, hands each part to the right worker, and each worker runs the normal Prometheus agent on its own screen, in its own already-logged-in Chrome, and reports back.
 
-It also remembers. It keeps what it knows about you, and it learns from what worked and what failed on the sites it visits, so it takes fewer steps next time.
-
-> A personal project, built in the open. macOS only (developed on Apple Silicon). It uses paid APIs and drives your real browser and mouse, so read [Privacy and safety](#privacy-and-safety) before using it.
-
-## What you get
-
-| | |
-|---|---|
-| **Prometheus** (**F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
-| **Dictate** (**F9**) | Press, talk, press again: your words are typed at the cursor in any app. |
-| **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, refresh the widget, forget what it learned, clear all memory. After a run, thumbs up / down (with an optional note) tell it what worked. |
-
-## Screenshots
-
-### Dictate mode (F9)
-
-<table align="center">
-  <tr>
-    <td align="center" valign="middle"><img src="docs/dictate.png" alt="Dictate mode: listening, with a recording timer" width="340"></td>
-    <td align="center" valign="middle"><img src="docs/transcribing.png" alt="Dictate mode: transcribing what was said" width="300"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>1. Listening</b></sub></td>
-    <td align="center"><sub><b>2. Transcribing</b>, then the text is typed at your cursor</sub></td>
-  </tr>
-</table>
-
-### Prometheus mode (F10 or "Prometheus")
-
-<p align="center"><img src="docs/widget.png" alt="Prometheus mode: working through a job search with a live checklist" width="380"></p>
-<p align="center"><sub><b>Working</b> through a multi-step job, with the plan and the current step on screen.</sub></p>
-
-Things it does well:
-
-- **Interrupt it.** Press F10 (or type and press Enter) while it speaks or works: it stops and follows your newest request. The microphone is closed whenever you are not recording, so there is nothing to talk over and no wake word.
-- **Right amount of ceremony.** A question gets a one-line answer; a one-step action gets one sentence; a multi-step job gets a checklist.
-- **No permission nagging.** Ordinary things (open, search, click, play) just happen. Only money, sending and deleting are gated.
-- **Operates the browser like a person**: switches tabs, uses shortcuts, goes straight to the right URL, and falls back to the real mouse when a page element can't be clicked.
-- **Learns.** It records which actions work or fail per site and turns that into lessons it applies to the right task later. Tap thumbs up or down after a run (a note says what went wrong): similar requests later are told what you liked and what you didn't.
-- **See what it learned.** `scripts/learnings.py show` lists the lessons, routes and your ratings; `check "what you would say"` prints what a new run of that request would be told; `add "topic" "lesson"` teaches it by hand.
-
-## How it works
-
-A Swift app owns the widget, global hotkeys and the macOS permissions (screen, mouse, keyboard). A Python daemon owns audio, speech models and the agent. They talk over a local WebSocket. The agent is Claude (via the Claude Agent SDK) with tools for the browser (Chrome DevTools MCP), the screen, memory and quick actions.
-
-### Architecture
-
-```mermaid
-flowchart LR
-    subgraph App["Swift app (menu-bar / Dock, SwiftUI)"]
-        HK[Global hotkeys<br/>CGEventTap]
-        UI[Floating widget<br/>states, plan, captions, typing box]
-        SC[Screen control<br/>screenshot, mouse, keys]
-        PASTE[Paste at cursor]
-        SUP[Daemon supervisor]
-    end
-
-    subgraph Daemon["Python daemon"]
-        BUS[(Event bus)]
-        WS[WebSocket bridge]
-        SM[Session manager<br/>state machine]
-        REC[Push-to-talk recorder<br/>F10 starts, F10 sends]
-        STT[Speech-to-text<br/>OpenAI Whisper or local faster-whisper]
-        TTS[Speaker<br/>Edge neural TTS, word-timed captions]
-        subgraph Modes
-            DICT[Dictate]
-            PROM[Prometheus]
-        end
-        subgraph AgentLayer["Agent layer (Claude Agent SDK)"]
-            RUN[Agent runner<br/>streaming, watchdog, tool cap]
-            BT[browser tools]
-            ST[screen tools]
-            MT[memory tools]
-            AT[quick actions]
-        end
-        MEM[(SQLite memory)]
-        MAINT[Maintenance<br/>hourly tidy, compaction]
-        JEV[Jev classifiers<br/>complexity, risk, instant commands]
-    end
-
-    CH[Your Chrome<br/>DevTools MCP]
-    PH[(Phoenix<br/>local traces)]
-
-    HK --> WS
-    WS <--> BUS
-    UI <--> WS
-    SC <--> WS
-    SUP --> Daemon
-    SM --> Modes
-    REC --> STT --> PROM
-    PROM --> JEV
-    PROM --> RUN
-    RUN --> BT --> CH
-    RUN --> ST --> SC
-    RUN --> MT --> MEM
-    RUN --> AT
-    PROM --> TTS
-    DICT --> PASTE
-    MAINT --> MEM
-    SM --> PH
-```
-
-### One conversational turn
-
-```mermaid
-sequenceDiagram
-    participant U as You
-    participant E as Recorder (F10)
-    participant S as STT
-    participant P as Prometheus
-    participant J as Jev
-    participant A as Agent (Claude)
-    participant T as Speaker
-
-    U->>E: presses F10, speaks, presses F10
-    E->>S: the recording
-    S->>P: text
-    P->>J: instant command? complexity? risk?
-    alt exact one-step command ("open Safari", "volume 30")
-        P->>P: run the action directly, no model
-    else everything else
-        P->>A: request + complexity hint + recent context
-        loop streaming
-            A-->>P: words
-            P-->>T: speak sentence by sentence (word-synced captions)
-            A-->>P: tool call (browser / screen / memory)
-            P-->>U: step shown on the widget
-        end
-    end
-    U-->>E: presses F10 (or types and presses Enter)
-    E-->>T: stop speaking at once
-    E-->>A: cancel, the new request becomes the instruction
-```
-
-Full design, memory model, safety and the extension points: **[DESIGN.md](DESIGN.md)**.
-
-## Requirements
-
-- macOS on Apple Silicon (developed and tested on a recent macOS; Intel is untested)
-- [uv](https://docs.astral.sh/uv/) (it installs Python 3.14 for you), Xcode Command Line Tools (`xcode-select --install`, for Swift)
-- **Google Chrome**, and [Node.js](https://nodejs.org) for browser control (`brew install node`)
-- API keys:
-  - **Anthropic** (required): powers the agent.
-  - **OpenAI** (default speech-to-text, Whisper): or run fully local speech-to-text with `stt.backend: faster_whisper` and no key.
-  - TypeSafe, Tavily, OpenWeatherMap (all optional, see `.env.example`).
-
-Expect real API spend: a long browsing session can cost on the order of a dollar. Keep an eye on your Anthropic usage.
-
-## Install
-
-```sh
-# 0. Tools (one time; skip any you already have)
-xcode-select --install                                   # Swift, git
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"   # Homebrew
-brew install uv                                          # or: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-git clone https://github.com/siddh30/prometheus-voice-control.git
-cd prometheus-voice-control
-
-# 1. Keys (never commit .env; it is git-ignored)
-cp .env.example .env        # then fill in at least ANTHROPIC_API_KEY (and OPENAI_API_KEY)
-
-# 2. Browser control (one time)
-brew install node
-npm install -g chrome-devtools-mcp
-
-# 3. Build and install the app into ~/Applications
-scripts/release.sh "first install"
-open "$HOME/Applications/Voice Control.app"
-```
-
-Then:
-
-1. **Grant permissions** in System Settings > Privacy & Security to *Voice Control*: **Microphone**, **Accessibility**, **Input Monitoring**, **Screen Recording** (screen looking only).
-2. **Turn on Chrome remote debugging:** in Chrome open `chrome://inspect/#remote-debugging` and enable it. The first time Prometheus drives the browser, Chrome shows an *Allow* prompt, once per app launch. Chrome will also show a "controlled by automated test software" banner while it works.
-3. Say **"Prometheus"**, or press **F10**.
-
-**Dock or Desktop:** the app is installed at `~/Applications/Voice Control.app`. Drag it from Finder to the Dock to pin it, or hold **Option+Command** while dragging it to the Desktop to make a shortcut. Tip: wearing headphones gives the best experience (no echo, so you can interrupt freely).
-
-## Using it
-
-| You say / do | What happens |
-|---|---|
-| "Play Daft Punk on YouTube" | Opens the search in a tab, picks the real result, plays it. The song keeps playing; press F10 to talk over it. |
-| "Switch to my LinkedIn tab and scroll down" | Uses the tab and scroll tools, and reports if the page didn't move. |
-| "Open it in another tab" | Does exactly that and stops. |
-| Press F10, or click the keyboard button and type | Interrupts and follows your newest instruction. |
-| "Thanks, that's all" / "bye" | Ends the conversation with a friendly goodbye. |
-| "New conversation" or "you're stuck" | Clean context, keeps what it knows about you. |
-| "Start fresh" / "forget everything", or the trash button (two clicks) | Wipes conversations and facts (it keeps what it learned about *how* to do things). |
-| "Forget what you've learned", or the lightbulb button (two clicks) | Erases the learned lessons, routes and ratings (it keeps what it knows about you). |
-| The refresh button | Refreshes the widget itself: clears the screen and reconnects. Nothing is forgotten. |
-| "What have you learned?" | Lists them. |
-| "Text only" / "speak to me" | Switches between spoken and silent replies (handy on speakers). |
-
-## Swarm: more than one computer
-
-**Prometheus Swarm** is a separate app (its own name, data and port; it cannot run at the same time as Voice Control, because both
-use F9 and F10). It is the same push-to-talk assistant, but every request is sent to the right one of your computers. You press F10,
-talk, press F10 again; the widget shows a map of your computers and a box with each one's checklist and result.
+> This branch is only the swarm. The single-computer voice assistant it is built on (push-to-talk, the browser agent, dictation, memory, install and permissions) is described on the default branch: **[Voice Control, the single-mode README](https://github.com/siddh30/prometheus-voice-control)**. Read that first for the basics; everything below is what the swarm adds.
+>
+> A personal project, built in the open. macOS only. It drives real browsers on every computer you add and uses paid APIs, so read [Privacy and safety](#privacy-and-safety) first.
 
 <table align="center">
   <tr>
@@ -214,93 +17,103 @@ talk, press F10 again; the widget shows a map of your computers and a box with e
   </tr>
 </table>
 
-- **Say where, or don't.** "Open Gmail on the MacBook", "check my calendar on both", "play it on the other computer". With no hint the
-  request runs on the computer you are speaking on. Tap a computer on the map to send everything there; tap AUTO to let it decide.
-- **Jobs that depend on each other.** A computer that needs another one says so in plain words at the end of its answer; the controller sends the job on, with what it found, and the cards show "handed over by" and "passed on to". "Both, but different results" splits the request, one job each; the same job is never given to two computers unless you say "both".
-- **A silent computer is reported, not hidden.** A task that goes quiet shows as stalled; a computer that stops answering shows as
-  not responding or offline, while the animation keeps running.
-- **Set it up once:**
-  1. Put the same `SWARM_TOKEN=<a long random secret>` in `.env` on every computer.
-  2. Release the app on your main computer: `APP_NAME="Prometheus Swarm" PROFILE_NAME=swarm scripts/release.sh "swarm"`.
-  3. List the other computers in `~/Library/Application Support/PrometheusSwarm/config.local.yaml`:
-     ```yaml
-     swarm:
-       name: Studio                       # this computer
-       pcs:
-         - {name: MacBook, host: 192.168.1.20, port: 8781, aliases: [laptop]}
-     ```
-  4. On each other computer, put `SWARM_WORKER_NAME=<the host you listed for it>` in its `.env` (for example `macbook-air`), then
-     run `scripts/swarm_worker.sh install` (it runs in the background and starts at login). Without it the worker uses its hostname,
-     which macOS can change.
+## What the swarm adds
 
-If your router gives a computer a new address, the controller finds it again by asking the network (a UDP broadcast on port 8782 that only workers with your token answer). For this, give `host` as the computer's name (for example `macbook-air`), not a numeric address. Turn it off with `swarm.discovery: false`.
+- **Say where, or don't.** "Open Gmail on the MacBook", "check my calendar on both", "play it on the other computer", "close all tabs on this Mac". With no hint, a single job runs on the computer you are speaking on. Tap a computer on the map to send everything there; tap AUTO to let it decide.
+- **Several jobs are spread out.** "Play lofi on YouTube and open Gmail": a small model splits independent jobs across your computers. Jobs that depend on each other stay together. If the model is slow or unavailable, everything runs on this computer.
+- **"Both, but different"** ("test on both Macs, different results: first A, the other B") is split, one job each. The same job is never given to two computers unless you say "both".
+- **A computer can pass work on mid-task.** A worker that needs another computer says so in plain words at the end of its answer. The controller sends the job on, with what it found, and the cards show "handed over by" and "passed on to". It is plain text, not a tool, it stops after three hops, and it cuts loops.
+- **A silent computer is reported, not hidden.** A task that goes quiet shows as stalled; a computer that stops answering shows as not responding or offline, while the animation keeps running from its own clock.
+- **It finds a computer again if its address changes.** The controller asks the network (a UDP broadcast that only workers with your token answer), so a router handing out a new address does not break the link.
+- **You teach it.** Thumbs up or down after a run (with a note on what went wrong). Similar requests later are told what you liked and what you didn't, on every computer, and the router uses it too. `scripts/learnings.py` shows, adds and tests what it has learned.
 
-Workers only accept connections that present your token, and they listen on your home network only if you install them that way.
-Details and diagrams are in `DESIGN.md`.
+## How it works
+
+```mermaid
+flowchart LR
+    YOU["You: F10, talk, F10"] --> STT["one transcription"]
+    STT --> ROUTER["Router<br/>rules first, a small model for splits"]
+    ROUTER --> CTRL["Controller<br/>this computer"]
+    CTRL --> L1["Local worker<br/>this computer"]
+    CTRL -- "authenticated WebSocket" --> W2["Worker: MacBook"]
+    CTRL -- "authenticated WebSocket" --> W3["Worker: another Mac"]
+    L1 --> AG1["Prometheus agent + monitor"]
+    W2 --> AG2["Prometheus agent + monitor"]
+    W3 --> AG3["Prometheus agent + monitor"]
+    AG1 & AG2 & AG3 -- "checklist, step, result, done, stalled, heartbeat" --> CTRL
+    CTRL -- "swarm event, a few times a second" --> UI["Widget: map + box"]
+    W2 -. "HANDOFF: plain text in the answer" .-> CTRL
+```
+
+Your words are transcribed once. The controller never reaches into a worker with tools: it sends plain text to the worker's own agent and gets ticks back. Each worker runs the same agent as single mode, headless, with a monitor that reports "stalled" and "resumed". Full design, the message tables and every diagram: **[DESIGN.md](DESIGN.md)**.
+
+## Set it up
+
+You need the single-mode basics on the computer you speak on (Xcode command line tools, `uv`, Chrome with remote debugging, an Anthropic key, see the [single-mode README](https://github.com/siddh30/prometheus-voice-control)), then:
+
+1. **The same secret on every computer:** put `SWARM_TOKEN=<a long random secret>` in `.env` on each. Never commit `.env`.
+2. **The app, on the computer you speak on:**
+   ```sh
+   git clone -b swarm https://github.com/siddh30/prometheus-voice-control.git
+   cd prometheus-voice-control
+   APP_NAME="Prometheus Swarm" PROFILE_NAME=swarm scripts/release.sh "first install"
+   open "$HOME/Applications/Prometheus Swarm.app"
+   ```
+   It is a separate app from Voice Control (its own name, icon, data folder and port), and grants its own permissions.
+3. **List your other computers** in `~/Library/Application Support/PrometheusSwarm/config.local.yaml` (this file survives releases and is never committed):
+   ```yaml
+   swarm:
+     name: Studio                       # this computer: "on the studio"
+     aliases: [mini, desktop]
+     pcs:
+       - {name: MacBook, host: macbook-air, port: 8781, aliases: [laptop, air]}
+   ```
+   Give `host` as the computer's name, not a numeric address, so it can be found again if the address changes.
+4. **On each other computer**, clone the same branch, put `SWARM_WORKER_NAME=<the host you listed for it>` in its `.env` (a fixed name, because macOS can change a hostname), and run:
+   ```sh
+   scripts/swarm_worker.sh install     # background worker, starts at login (also: status, uninstall)
+   ```
+   It has no window. After a restart it comes back by itself once you log in (turn on automatic login if the Mac should be ready without you).
+
+The map shows each computer as online, working, quiet, not responding or offline. If a computer won't connect, `scripts/swarm_worker.sh status` on it says whether the worker is running, and its log says why.
+
+### Updating
+
+Release again on the main computer, and on each worker run `git pull` and `scripts/swarm_worker.sh install` so it runs the new code.
+
+## The card
+
+Buttons on the widget: voice on/off, type, the computers map, new conversation, **refresh** (clears the screen and reconnects, nothing is forgotten), **lightbulb** (forget what it learned) and **trash** (clear all memory). The two clearing buttons take two clicks. A card taller than its window scrolls. After a run, thumbs up or down.
 
 ## Switching between Voice Control and Prometheus Swarm
 
-The two apps both use F9 and F10, so only one can run at a time. **Prometheus Switch** is a small app that swaps them. As long as it is
-running (its icon is in the menu bar, and says which app is active), press **F12** anywhere: it quits the running app, waits until it has
-really exited, and opens the other. You can also click the icon: a floating card extends down from it with both apps and a Switch
-button. It never force-quits an app; if one won't quit it tells you. Install it once with `scripts/build_switcher.sh`; the first time,
-macOS asks for Accessibility and Input Monitoring (needed to see F12 everywhere). The card has "Open at login".
+The two apps both use F9 and F10, so only one can run at a time. **Prometheus Switch** is a small app that swaps them: while it runs (its icon is in the menu bar), press **F12** anywhere. It quits the running app, waits until it has really exited, and opens the other. Click the icon for a card with both apps and a Switch button. It never force-quits an app. Install it once with `scripts/build_switcher.sh`; macOS asks for Accessibility and Input Monitoring the first time (needed to see F12 everywhere).
 
 ## Configuration
 
-Everything is in `config.yaml` (hotkeys, models, voice, speed, pause length, memory limits, browser backend). Common tweaks:
-
-```yaml
-tts:
-  voice: en-US-ChristopherNeural   # any Edge neural voice: en-US-AndrewNeural, en-GB-RyanNeural, ...
-  rate: "+25%"
-conversation:
-  silence_s: 1.4                   # how long a pause means "I'm done talking"
-stt:
-  backend: openai                  # or faster_whisper for fully local, offline transcription
-```
+Swarm settings live under `swarm:` in `config.yaml` and `config.swarm.yaml`: `enabled`, `stall_after_s`, `silent_after_s`, `router_model`, `discovery` and `discovery_port` (8782), and `worker.host` / `worker.port` (8781). Per-computer settings (the other computers, this computer's name and aliases) go in `config.local.yaml`. Everything else is as in single mode.
 
 ## Privacy and safety
 
-- **What leaves your Mac:** your speech and text go to the speech, language-model and voice providers you configure, and agent traffic goes to Anthropic. **Nothing listens in the background**: the microphone is open only while you record, and there is no wake word.
-- **Your data stays local:** memory, learnings, the voice cache, traces and logs live in `~/Library/Application Support/VoiceControl/` and are git-ignored. Keys live in `.env`.
-- **It controls your real browser, mouse and keyboard.** It asks before anything that spends money, sends something or deletes. Page content is treated as data, not instructions, but no prompt-injection defence is perfect: do not point it at untrusted pages while logged in to sensitive accounts.
+- **The shared token is the lock.** A worker refuses every connection that does not present `SWARM_TOKEN` (compared in constant time), and it will not start without one. Discovery answers only a request that proves it knows the token. The link is not encrypted: use it on a network you trust (your home network), not on public Wi-Fi.
+- **Workers listen on your local network** (port 8781) only if you install them that way, and the discovery port is 8782.
+- **Every computer acts for you.** Each worker drives its own real browser and keyboard with the same rules as single mode: it asks before anything that spends money, sends something or deletes, and you can approve or deny from the Mac you speak on.
+- **Data stays local.** Memory, learnings, ratings and logs live in `~/Library/Application Support/PrometheusSwarm/` on each computer and are git-ignored. Your speech and text go to the providers you configure, as in single mode.
 - Use at your own risk; this is a personal project and not a security-audited product.
-
-## Two versions: stable and dev
-
-The installed **Voice Control** app runs from a frozen snapshot, so editing the code never changes it under you. To work on the code safely:
-
-```sh
-scripts/dev.sh test      # run the test suite (also: pytest)
-scripts/dev.sh run       # run the daemon with its own data, port, no hotkeys/mic/voice
-scripts/release.sh "what changed"   # freeze the current code as the version you use (quit the app first)
-```
-
-## Extending
-
-- A quick action: a file in `src/voicectl/actions/` with `@actions.register(...)`
-- A skill: `.claude/skills/<name>/SKILL.md`
-- A mode, STT/TTS engine or browser backend: register it by name and select it in `config.yaml`
-
-Details and the extension table are in [DESIGN.md](DESIGN.md).
 
 ## Known limits
 
-- Chrome asks for one *Allow* per app launch (its design, not ours).
-- Screenshot clicking depends on the model's aim; the agent prefers page elements and URLs and uses the mouse as a fallback.
-- Open speakers can still leak its voice back into the mic; headphones are the clean setup.
-- Learned lessons are text hints, not verified procedures.
+- Each computer keeps its own conversation and learnings; the controller passes recent exchanges and your ratings along, but a worker does not see another worker's whole history.
+- Delegation uses a model for splits, so it will sometimes choose differently than you would: say the computer to be exact.
+- A task running on a computer that shuts off is lost, not resumed.
 - macOS only.
 
 ## Troubleshooting
 
-- **It doesn't hear me:** check the Microphone permission and your default input device. It re-opens the mic automatically if the device changes.
-- **"Credit balance is too low":** your Anthropic account is out of credit.
-- **Hotkeys do nothing:** grant Accessibility and Input Monitoring, then reopen the app.
-- **Permissions reset after every update:** without a signing certificate the app is signed ad hoc, and macOS treats each build as a new app. Create a code-signing certificate named `Voice Control Local Signing` in Keychain Access (Certificate Assistant > Create a Certificate, type *Code Signing*) and future builds keep their permissions.
-- **Updating:** `git pull`, quit the app, then `scripts/release.sh "update"` and reopen it.
-- **Stuck on "thinking":** click the new-conversation button, or say "new conversation". The previous run's log is `daemon.log.prev` in the data folder.
+- **A computer stays offline:** is the worker installed and running there (`scripts/swarm_worker.sh status`), logged in, and on the same network? Is `SWARM_TOKEN` identical on both? Does `host` match the name that computer's `SWARM_WORKER_NAME` announces?
+- **"Refused the shared token":** the two `.env` files have different `SWARM_TOKEN` values.
+- **The card is stuck or odd:** the refresh button clears it and reconnects.
+- Everything else (microphone, permissions, hotkeys) is the same as in the [single-mode README](https://github.com/siddh30/prometheus-voice-control).
 
 ## License
 
