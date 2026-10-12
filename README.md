@@ -215,7 +215,9 @@ talk, press F10 again; the widget shows a map of your computers and a box with e
        pcs:
          - {name: MacBook, host: 192.168.1.20, port: 8781, aliases: [laptop]}
      ```
-  4. On each other computer, run `scripts/swarm_worker.sh install` (it runs in the background and starts at login).
+  4. On each other computer, put `SWARM_WORKER_NAME=<the host you listed for it>` in its `.env` (for example `siddharthsair2`), then
+     run `scripts/swarm_worker.sh install` (it runs in the background and starts at login). Without it the worker uses its hostname,
+     which macOS can change.
 
 If your router gives a computer a new address, the controller finds it again by asking the network (a UDP broadcast on port 8782 that only workers with your token answer). For this, give `host` as the computer's name (for example `siddharthsair2`), not a numeric address. Turn it off with `swarm.discovery: false`.
 

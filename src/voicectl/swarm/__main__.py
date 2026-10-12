@@ -14,10 +14,16 @@ from voicectl.swarm.server import WorkerServer
 from voicectl.swarm.worker import Worker
 
 
+def worker_name(config) -> str:
+    """The name the controller finds this worker by: SWARM_WORKER_NAME in .env, else swarm.worker.name, else the hostname
+    (which macOS can change, e.g. adding "-2", so pin it on a worker you rely on)."""
+    return os.environ.get("SWARM_WORKER_NAME") or config.get("swarm.worker.name") or socket.gethostname().split(".")[0]
+
+
 async def run() -> None:
     config = load_config()
     token = os.environ.get("SWARM_TOKEN", "")
-    name = config.get("swarm.worker.name") or socket.gethostname().split(".")[0]
+    name = worker_name(config)
     worker = Worker(name, AgentExecutor(config, shared_memory({})), stall_after_s=config.get("swarm.stall_after_s", 30))
     server = WorkerServer(worker, token, host=config.get("swarm.worker.host", "127.0.0.1"), port=config.get("swarm.worker.port", 8781),
                           heartbeat_s=config.get("swarm.heartbeat_s", 3),
