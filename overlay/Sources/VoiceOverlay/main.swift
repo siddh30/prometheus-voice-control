@@ -170,7 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(withTitle: model.voiceOn ? "Voice replies: on (click for text only)" : "Text only (click to hear replies)", action: #selector(toggleVoiceMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "New conversation (clean context)", action: #selector(newChatMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Start fresh (forget everything)", action: #selector(startFreshMenu), keyEquivalent: "").target = self
+        m.addItem(withTitle: "Forget what I learned (keeps what I know about you)", action: #selector(forgetLearningsMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Clean memory now", action: #selector(cleanMemory), keyEquivalent: "").target = self
+        m.addItem(withTitle: "Refresh the widget", action: #selector(refreshMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Reset widget position", action: #selector(resetPos), keyEquivalent: "").target = self
         return m
     }
@@ -178,6 +180,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func toggleVoiceMenu() { model.toggleVoice() }
     @objc func newChatMenu() { model.newConversation() }
     @objc func startFreshMenu() { model.startFresh() }
+    @objc func refreshMenu() { model.refresh() }
+    @objc func forgetLearningsMenu() { model.forgetLearnings() }
     @objc func cleanMemory() { if let j = Command.maintenance.json { socket.send(j) } }
     @objc func resetPos() { resetPosition() }
     @objc func restartDaemon() { supervisor?.restartDaemon() }

@@ -87,6 +87,10 @@ async def run() -> None:
     async def _fresh(_cmd) -> None:
         log.info("start fresh: %s", await maint.start_fresh(forget_conversation))
 
+    @control.on("forget_learnings")
+    async def _forget_learnings(_cmd) -> None:
+        log.info("forget learnings: %s", await maint.forget_learnings())
+
     @control.on("newchat")
     async def _newchat(_cmd) -> None:
         log.info("%s", await maint.new_conversation(forget_conversation))

@@ -80,6 +80,7 @@ final class OverlayModel: ObservableObject {
 
     private var clearTask: Task<Void, Never>?
     var send: ((String) -> Void)?
+    var reconnect: (() -> Void)?
     func send(_ command: Command) { if let json = command.json { send?(json) } }
 
     /// The hands-free conversation modes (they keep listening, show replies, can be talked over).
@@ -321,6 +322,20 @@ final class OverlayModel: ObservableObject {
 
     /// Forget everything Prometheus remembers (conversation, facts, sessions) and start with a clean slate.
     func startFresh() { send(.fresh) }
+
+    /// Refresh the widget as a whole: forget everything on screen, put every control back to rest and reconnect to the daemon, which
+    /// then sends its current state. Nothing the assistant remembers is touched.
+    func refresh() {
+        clearTask?.cancel()
+        resetRun()
+        phase = .idle; mode = nil; route = nil; level = 0; flash = nil; speaking = false; stalled = false; typing = false
+        jobActive = false; jobText = ""; musicTitle = ""; needsPermission = false; listenStart = nil
+        swarm = nil; swarmCleared = true; mapOpen = false
+        reconnect?()
+    }
+
+    /// Forget what it learned about how to do things (lessons, routes, thumbs). What it knows about you stays.
+    func forgetLearnings() { send(.forgetLearnings) }
 
     func respondApproval(_ ok: Bool) {
         approval = nil

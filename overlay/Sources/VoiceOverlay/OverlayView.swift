@@ -242,15 +242,34 @@ struct CaptionView: View {
 }
 
 
-/// Clears everything Prometheus remembers. Two clicks, so it can't happen by accident: the first arms it ("CLEAR?"), the second does it.
-struct FreshButton: View {
+/// Refreshes the widget itself (one click, nothing is forgotten): clears what is on screen and reconnects to the assistant.
+struct RefreshButton: View {
+    let action: () -> Void
+    var body: some View {
+        Image(systemName: "arrow.clockwise")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Color.white.opacity(0.6))
+            .frame(width: 22, height: 22)
+            .background(Circle().fill(Color.white.opacity(0.08)))
+            .contentShape(Circle())
+            .onTapGesture(perform: action)
+            .help("Refresh the widget: clear the screen and reconnect (keeps all memory)")
+    }
+}
+
+
+/// A clear button. Two clicks, so it can't happen by accident: the first arms it (it shows what it will clear), the second does it.
+struct ClearButton: View {
+    let icon: String
+    let armedText: String
+    let help: String
     let action: () -> Void
     @State private var armed = false
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: armed ? "trash.fill" : "arrow.counterclockwise")
+            Image(systemName: armed ? "\(icon).fill" : icon)
                 .font(.system(size: 10, weight: .semibold))
-            if armed { Text("CLEAR ALL MEMORY?").font(.system(size: 8, weight: .bold, design: .rounded)).tracking(0.8) }
+            if armed { Text(armedText).font(.system(size: 8, weight: .bold, design: .rounded)).tracking(0.8) }
         }
         .foregroundStyle(armed ? Color.red.opacity(0.95) : Color.white.opacity(0.6))
         .padding(.horizontal, armed ? 8 : 0)
@@ -264,7 +283,7 @@ struct FreshButton: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { armed = false }
             }
         }
-        .help(armed ? "Click again to forget everything and start fresh" : "Start fresh: forget everything Prometheus remembers")
+        .help(armed ? "Click again to confirm" : help)
     }
 }
 
