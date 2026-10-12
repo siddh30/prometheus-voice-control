@@ -7,7 +7,7 @@ import SwiftUI
 struct PillShell<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        HStack(spacing: 8) { content }
+        HStack(spacing: 7) { content }
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(Capsule().fill(.white.opacity(0.07)).overlay(Capsule().stroke(.white.opacity(0.10), lineWidth: 0.5)))
     }
@@ -20,6 +20,7 @@ struct StatusRow: View {
         if model.mode != nil, model.isActive {
             Text(model.tag)
                 .font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.6)
+                .lineLimit(1).fixedSize()                                     // the chip never wraps, whatever else is in the row
                 .padding(.horizontal, 7).padding(.vertical, 3)
                 .background(Capsule().fill(model.palette.a.opacity(0.25)))
                 .foregroundStyle(model.palette.a)

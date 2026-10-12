@@ -59,6 +59,9 @@ func renderSnapshots(to dir: String) {
         $0.transcript = "Okay, now check my profile and see what my profile looks like and based on that, open another LinkedIn tab which can tell me the best jobs for me. Also you may want to open another tab which will also tell me all posts regarding any positions for my particular profile."
         $0.checklist = [ChecklistItem(text: "Open new LinkedIn tab", status: "done"), ChecklistItem(text: "Search posts for VP AI/ML job openings", status: "done"), ChecklistItem(text: "Read and surface the best post results", status: "done")]
         $0.result = "Your profile looks great: VP, Applied AI/ML Lead in the New York City area with 1,766 followers. The posts tab is open and already showing great results."
+    shot("26_prometheus_listening") {                              // the widest status row: chip, glyph, status word, timer and every button
+        $0.phase = .listening; $0.mode = "prometheus"; $0.listenStart = Date().addingTimeInterval(-44); $0.voiceOn = false
+    }
         $0.rating = "down"; $0.rateOpen = true
     }
     shot("11_music") { $0.phase = .music; $0.mode = "prometheus"; $0.musicTitle = "Queen – Bohemian Rhapsody (Official Video Remastered)" }

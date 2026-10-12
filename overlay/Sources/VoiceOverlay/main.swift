@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isMovableByWindowBackground = true       // drag it anywhere
         loadAnchor()
-        place(size: CGSize(width: 480, height: 640))   // the OverlayView's fixed frame
+        place(size: CGSize(width: OverlayView.windowWidth, height: OverlayView.windowHeight))   // the OverlayView's fixed frame
         panel.orderFrontRegardless()
 
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
@@ -170,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func position() {
         guard let screen = NSScreen.main else { return }
         let f = screen.visibleFrame
-        panel.setFrame(NSRect(x: f.midX - 240, y: f.minY + 12, width: 480, height: 640), display: true)
+        panel.setFrame(NSRect(x: f.midX - OverlayView.windowWidth / 2, y: f.minY + 12, width: OverlayView.windowWidth, height: OverlayView.windowHeight), display: true)
     }
 }
 
