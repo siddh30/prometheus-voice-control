@@ -1,8 +1,6 @@
 # SWARM profile: the separate "Prometheus Swarm" app. Applied on top of config.yaml when profile.txt says "swarm".
-# Same keys as single mode (F9 dictate, F10 Prometheus, inherited from config.yaml), push-to-talk only.
+# Same keys as single mode (F9 dictate, F10 Prometheus, inherited from config.yaml). Push-to-talk, no wake word.
 ui:
   ws_port: 8767         # Voice Control uses 8765, dev uses 8766
-wake_word:
-  enabled: false        # no wake word: the microphone is closed until you press a key
 telemetry:
   project: voicectl-swarm
