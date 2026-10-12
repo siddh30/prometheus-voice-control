@@ -39,7 +39,10 @@ final class DaemonSocket {
     init(url: URL, model: OverlayModel) {
         self.url = url
         self.model = model
-        Task { @MainActor in model.send = { [weak self] text in self?.send(text) } }
+        Task { @MainActor in
+            model.send = { [weak self] text in self?.send(text) }
+            model.reconnect = { [weak self] in self?.reconnect() }
+        }
         connect()
         startTick()
     }
@@ -60,6 +63,12 @@ final class DaemonSocket {
         }
         t.resume()
         tick = t
+    }
+
+    /// Drop the connection; the receive loop's failure path reconnects a moment later, and the daemon answers a new connection with
+    /// its current state (voice setting, the swarm board), so the widget is rebuilt from the truth.
+    func reconnect() {
+        task?.cancel(with: .goingAway, reason: nil)
     }
 
     func send(_ text: String) {
