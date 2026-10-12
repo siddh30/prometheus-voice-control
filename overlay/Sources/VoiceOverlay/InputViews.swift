@@ -27,10 +27,22 @@ struct StatusRow: View {
         if !(model.phase == .idle && model.connected) {      // the resting pill is just the name
             StatusGlyph(phase: model.phase, color: model.connected ? model.palette.a : .orange, connected: model.connected, speaking: model.speaking, job: model.jobActive)
         }
-        Text(model.label)
+        label
             .lineLimit(1).fixedSize()
-            .font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.4)
-            .foregroundStyle(model.connected ? Color.white.opacity(model.phase == .idle ? 0.45 : 0.9) : Color.orange.opacity(0.9))
+    }
+}
+
+extension StatusRow {
+    /// The status word. The resting swarm pill is two-toned, "PROMETHEUS" in the usual grey and "SWARM" in the swarm's own green.
+    var label: Text {
+        let base = model.connected ? Color.white.opacity(model.phase == .idle ? 0.45 : 0.9) : Color.orange.opacity(0.9)
+        func word(_ t: String, _ color: Color) -> Text {
+            Text(t).font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(2.4).foregroundColor(color)
+        }
+        if model.isSwarmApp && model.connected && model.label == "PROMETHEUS SWARM" {
+            return word("PROMETHEUS ", base) + word("SWARM", SwarmStyle.ready)
+        }
+        return word(model.label, base)
     }
 }
 

@@ -84,6 +84,7 @@ func renderSnapshots(to dir: String) {
             pc("Studio", local: true), pc("MacBook"),
             pc("Mac mini", state: "not_responding", task: "search the web", checklist: [["text": "Search the web", "status": "in_progress"]], detail: "no word from that computer")]])
     }
+    shot("24_swarm_resting") { $0.phase = .idle; $0.isSwarmApp = true }
     shot("11_music") { $0.phase = .music; $0.mode = "prometheus"; $0.musicTitle = "Queen – Bohemian Rhapsody (Official Video Remastered)" }
     shot("13_long_speaking") { $0.phase = .thinking; $0.mode = "prometheus"; $0.speaking = true
         $0.transcript = String(repeating: "Here is a long answer that keeps going so the caption has to grow and then scroll to follow the newest words. ", count: 2) }

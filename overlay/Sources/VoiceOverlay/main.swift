@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         supervisor = DaemonSupervisor()
+        model.isSwarmApp = supervisor?.profile == "swarm"
         supervisor?.start()
         let host = ProcessInfo.processInfo.environment["VOICECTL_WS"] ?? supervisor?.wsURL.absoluteString ?? "ws://127.0.0.1:8765"
         socket = DaemonSocket(url: URL(string: host)!, model: model)

@@ -59,3 +59,9 @@ def test_each_app_widget_connects_to_its_own_daemons_port():
 def test_the_two_apps_refuse_to_run_together_because_they_share_the_keys():
     swift = pathlib.Path("overlay/Sources/VoiceOverlay/main.swift").read_text()
     assert "com.siddharth.voicecontrol" in swift and "com.siddharth.prometheusswarm" in swift and "is already open" in swift
+
+
+def test_the_swarm_apps_resting_pill_says_prometheus_swarm_and_single_mode_does_not():
+    model = pathlib.Path("overlay/Sources/VoiceOverlay/Model.swift").read_text()
+    assert '(isSwarmApp ? "PROMETHEUS SWARM" : "PROMETHEUS")' in model            # decided by the app's profile, not by what happens to be connected
+    assert 'model.isSwarmApp = supervisor?.profile == "swarm"' in pathlib.Path("overlay/Sources/VoiceOverlay/main.swift").read_text()
