@@ -75,6 +75,10 @@ class SwarmController:
         online = {n for n, link in self.links.items() if link.state is LinkState.ONLINE}
         routed = await self.router.route(text, self.board.picked, online)
         self.board.set_routing(routed.how)
+        involved = {a.pc for a in routed.assignments}
+        for name, state in list(self.board.pcs.items()):                         # last request's cards must not linger: it looks like they did this one too
+            if name not in involved and state.run in ("idle", "done", "failed"):
+                self.board.reset(name)
         started: list[tuple[str, str]] = []
         for a in routed.assignments:
             task_id = uuid.uuid4().hex[:12]

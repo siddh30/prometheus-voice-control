@@ -74,3 +74,29 @@ def test_if_the_model_is_unavailable_the_request_stays_here():
     llm.set_llm(Broken())
     r = route("do the mail on the other computer")
     assert pairs(r) == [("Studio", "do the mail on the other computer")] and r.how == "default"
+
+
+def test_this_mac_and_here_point_at_the_computer_you_are_speaking_on():
+    assert pairs(route("open gmail on this mac and play music on the mini")) == [("Studio", "open gmail"), ("Mac mini", "play music")]
+    assert pairs(route("close all tabs here")) == [("Studio", "close all tabs")]
+
+
+def test_of_for_and_a_leading_name_also_name_a_computer():
+    assert pairs(route("close all tabs of the MacBook")) == [("MacBook", "close all tabs")]
+    assert pairs(route("MacBook, open my profile")) == [("MacBook", "open my profile")]
+
+
+def test_the_word_both_in_a_sentence_is_not_a_request_for_both_computers():
+    assert route("I think you can control both, try again").how != "all"
+    assert route("check the weather on both").how == "all"
+    assert route("open gmail on both computers").how == "all"
+
+
+def test_a_split_request_or_a_half_named_one_is_divided_by_the_model_not_guessed(monkeypatch):
+    class Fake:
+        def tool_calls(self, **kw):
+            return [ToolCall("assign", {"assignments": [{"pc": "Studio", "task": "open obvious on youtube"}, {"pc": "MacBook", "task": "open my profile on linkedin"}]})]
+    monkeypatch.setattr(llm, "current", lambda: Fake())
+    expect = [("Studio", "open obvious on youtube"), ("MacBook", "open my profile on linkedin")]
+    assert pairs(route("open my profile on linkedin and obvious on youtube on different computers")) == expect
+    assert pairs(route("open obvious on youtube and open my profile on linkedin on the macbook")) == expect

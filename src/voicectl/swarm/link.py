@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from typing import Any
 
@@ -94,9 +94,11 @@ class LocalLink(Link):
 
 class RemoteLink(Link):
     def __init__(self, name: str, host: str, port: int, token: str, *, silent_after_s: float = 8.0, connect_timeout_s: float = 3.0,
-                 max_backoff_s: float = 10.0, retry_s: float = 1.0, clock: Callable[[], float] = time.monotonic) -> None:
+                 max_backoff_s: float = 10.0, retry_s: float = 1.0, clock: Callable[[], float] = time.monotonic,
+                 locate: Callable[[], Awaitable[tuple[str, int] | None]] | None = None) -> None:
         self.name, self.host, self.port, self.token = name, host, port, token
         self.silent_after_s, self.connect_timeout_s, self.max_backoff_s, self.retry_s, self._clock = silent_after_s, connect_timeout_s, max_backoff_s, retry_s, clock
+        self.locate = locate                                    # asks the network where this worker is now (its address may have changed)
         self.state = LinkState.CONNECTING
         self._ws = None
         self._heard = 0.0
@@ -139,6 +141,8 @@ class RemoteLink(Link):
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                if isinstance(e, (OSError, TimeoutError)) and await self._relocate():
+                    continue                                     # found it at a new address: try that straight away
                 self._set(LinkState.OFFLINE, f"can't reach {self.host}:{self.port}" if isinstance(e, (OSError, TimeoutError))
                           else f"{type(e).__name__}")
             finally:
@@ -150,6 +154,20 @@ class RemoteLink(Link):
                         pass
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self.max_backoff_s)
+
+    async def _relocate(self) -> bool:
+        """The saved address didn't answer. If the worker is elsewhere on the network now, switch to its new address."""
+        if self.locate is None:
+            return False
+        try:
+            where = await self.locate()
+        except Exception:
+            return False
+        if not where or where == (self.host, self.port):
+            return False
+        log.info("%s moved: %s:%s -> %s:%s", self.name, self.host, self.port, *where)
+        self.host, self.port = where
+        return True
 
     async def _read(self, ws) -> None:
         async for raw in ws:

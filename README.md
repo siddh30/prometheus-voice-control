@@ -217,6 +217,8 @@ talk, press F10 again; the widget shows a map of your computers and a box with e
      ```
   4. On each other computer, run `scripts/swarm_worker.sh install` (it runs in the background and starts at login).
 
+If your router gives a computer a new address, the controller finds it again by asking the network (a UDP broadcast on port 8782 that only workers with your token answer). For this, give `host` as the computer's name (for example `siddharthsair2`), not a numeric address. Turn it off with `swarm.discovery: false`.
+
 Workers only accept connections that present your token, and they listen on your home network only if you install them that way.
 Details and diagrams are in `DESIGN.md`.
 

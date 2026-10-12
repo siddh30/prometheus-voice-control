@@ -10,6 +10,9 @@ from voicectl import llm
 log = logging.getLogger("voicectl.swarm.router")
 
 
+LOCAL_PHRASES = ("this mac", "this computer", "this machine", "this pc", "this laptop", "this one", "right here", "here", "locally")
+
+
 @dataclass(frozen=True)
 class PC:
     name: str
@@ -19,6 +22,11 @@ class PC:
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(n.lower() for n in (self.name, *self.aliases) if n))
+
+    @property
+    def here(self) -> tuple[str, ...]:
+        """How you point at the computer you are speaking on."""
+        return LOCAL_PHRASES if self.local else ()
 
 
 @dataclass(frozen=True)
@@ -34,10 +42,13 @@ class Routed:
 
 
 DEVICE = r"(?:computers?|pcs?|macs?|machines?|laptops?|devices?)"
-ALL = re.compile(rf"\b(?:on\s+)?(?:both(?:\s+of\s+(?:them|my\s+{DEVICE}))?(?:\s+{DEVICE})?"
+# Only a request counts: "on both", "both computers", "all my computers", "everywhere". "I think you can control both" does not.
+ALL = re.compile(rf"\b(?:(?:on|in|across|for)\s+both(?:\s+of\s+(?:them|my\s+{DEVICE}))?(?:\s+{DEVICE})?|both\s+{DEVICE}|both\s+of\s+(?:them|my\s+{DEVICE})"
                  rf"|all(?:\s+of)?(?:\s+(?:my|the))?\s+{DEVICE}|all\s+of\s+them|every\s+{DEVICE}|everywhere)\b", re.I)
+# "on different computers", "one on each", "split it": the request has to be divided, which only a model can do
+SPLIT = re.compile(rf"\b(?:different|separate|each|several|multiple)\s+{DEVICE}\b|\bone\s+(?:on|per)\s+each\b|\bsplit\s+(?:it|them|this|that)\b", re.I)
 OTHER = re.compile(r"\b(?:on\s+)?(?:the\s+|my\s+)?(?:other|another)\s+(?:one|computer|pc|mac|machine|laptop)\b|\belsewhere\b", re.I)
-LEAD = r"(?:on|to|in|from|using|with|at)\s+(?:my\s+|the\s+)?"
+LEAD = r"(?:on|to|in|from|using|with|at|of|for|via|through)\s+(?:my\s+|the\s+)?"
 TASK_SPLIT = re.compile(r"\s*(?:,\s*(?:and\s+)?|\band\s+(?:then\s+)?|\bthen\s+)\s*(?=\S)", re.I)
 
 ASSIGN_TOOL = {
@@ -69,7 +80,11 @@ class Router:
 
     def _alias_regex(self, pc: PC) -> re.Pattern:
         alts = "|".join(re.escape(n) for n in sorted(pc.names, key=len, reverse=True))
-        return re.compile(rf"\b{LEAD}(?:{alts})\b", re.I)
+        pattern = rf"\b{LEAD}(?:{alts})\b|^(?:hey\s+|ok(?:ay)?\s+)?(?:the\s+|my\s+)?(?:{alts})\s*[,:]\s*"      # "on the MacBook", "of the MacBook", "MacBook, open it"
+        if pc.here:                                                              # "this Mac" / "here" need no lead word
+            here = "|".join(re.escape(n) for n in sorted(pc.here, key=len, reverse=True))
+            pattern += rf"|\b(?:{LEAD})?(?:{here})\b"
+        return re.compile(pattern, re.I)
 
     async def route(self, text: str, picked: str | None = None, online: set[str] | None = None) -> Routed:
         online = {p.name for p in self.pcs} if online is None else online
@@ -83,7 +98,16 @@ class Router:
             task = re.sub(r"\s{2,}", " ", ALL.sub(" ", text)).strip(" ,.") or text
             return Routed([Assignment(p.name, task) for p in usable or self.pcs], "all")
 
-        named = self._named_clauses(text)
+        if SPLIT.search(text) and len(usable) > 1:                                  # "on different computers": the request must be divided
+            asked = await self._ask_model(text, usable)
+            if asked.how == "llm":
+                return asked
+
+        named, guessed = self._named_clauses(text)
+        if named and guessed and len(usable) > 1:                                    # some parts name a computer and some do not: don't guess who gets those
+            asked = await self._ask_model(text, usable)
+            if asked.how == "llm":
+                return asked
         if named:
             return Routed(named, "named")
 
@@ -97,18 +121,25 @@ class Router:
 
         return Routed([Assignment(self.local.name, text)], "default")
 
-    def _named_clauses(self, text: str) -> list[Assignment]:
+    def _named_clauses(self, text: str) -> tuple[list[Assignment], bool]:
         """"open Gmail on the MacBook and play music on the Mac mini" -> one task each. A clause naming two computers goes to both."""
         clauses = [c for c in TASK_SPLIT.split(text) if c.strip()] or [text]
         out: list[Assignment] = []
+        guessed = False                                              # an unnamed part was attached to a named one: only a guess
         carry = ""
         last_task = ""
+        lead: list[PC] = []
         for clause in clauses:
             bare = next((p for p in self.pcs if re.fullmatch(rf"(?:the\s+|my\s+)?(?:{'|'.join(re.escape(n) for n in p.names)})", clause.strip(" ,."), re.I)), None)
             if bare and out and not carry:                                  # "...on the MacBook and the mac mini": the same task, also there
                 out.append(Assignment(bare.name, last_task))
                 continue
+            if bare and not out and not carry:                              # "MacBook, open my profile": the name leads the next clause
+                lead.append(bare)
+                continue
             hits = [p for p in self.pcs if self._alias_regex(p).search(clause)]
+            if lead and not hits:
+                hits, lead = lead, []
             if not hits:
                 carry = f"{carry} {clause}".strip()                    # no computer here: it belongs with the next clause that has one
                 continue
@@ -116,6 +147,7 @@ class Router:
             for p in hits:
                 task = self._alias_regex(p).sub(" ", task)
             task = re.sub(r"\s{2,}", " ", task).strip(" ,.")
+            guessed = guessed or bool(carry)
             last_task = task if not carry else f"{carry} {task}".strip()
             for p in hits:
                 out.append(Assignment(p.name, last_task))
@@ -123,7 +155,8 @@ class Router:
         if carry and out:                                              # trailing words with no computer: they belong to the last task
             last = out[-1]
             out[-1] = Assignment(last.pc, f"{last.task} {carry}".strip())
-        return out
+            guessed = True
+        return out, guessed
 
     async def _ask_model(self, text: str, usable: list[PC]) -> Routed:
         names = [p.name for p in usable]

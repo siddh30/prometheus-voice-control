@@ -7,6 +7,7 @@ import logging
 
 from websockets.asyncio.server import ServerConnection, serve
 
+from voicectl.swarm.discovery import Beacon
 from voicectl.swarm.protocol import COMMANDS, PROTOCOL_VERSION, validate
 from voicectl.swarm.worker import Worker
 
@@ -18,11 +19,14 @@ class WorkerServer:
     shared token (SWARM_TOKEN); everything after it goes to the Worker. A heartbeat every few seconds, independent of any task,
     tells the controller this computer is alive even while a task is quiet."""
 
-    def __init__(self, worker: Worker, token: str, host: str = "127.0.0.1", port: int = 8781, heartbeat_s: float = 3.0) -> None:
+    def __init__(self, worker: Worker, token: str, host: str = "127.0.0.1", port: int = 8781, heartbeat_s: float = 3.0,
+                 discovery_port: int = 0) -> None:
         if not token:
             raise ValueError("SWARM_TOKEN is empty: a worker never listens without a shared secret")
         self.worker, self.token, self.host, self.port, self.heartbeat_s = worker, token, host, port, heartbeat_s
+        self.discovery_port = discovery_port                     # 0 = do not answer "where is this worker?" probes
         self._server = None
+        self._beacon: Beacon | None = None
 
     async def _handler(self, ws: ServerConnection) -> None:
         if not await self._authenticate(ws):
@@ -72,10 +76,14 @@ class WorkerServer:
         self._server = await serve(self._handler, self.host, self.port, max_size=1024 * 1024)
         if self.port == 0:                                       # tests ask for any free port
             self.port = self._server.sockets[0].getsockname()[1]
+        if self.discovery_port:
+            self._beacon = await Beacon.start(self.worker.name, self.token, self.port, self.discovery_port)
         self.worker.start_monitor()
         log.info("swarm worker %r listening on ws://%s:%d", self.worker.name, self.host, self.port)
 
     async def stop(self) -> None:
+        if self._beacon:
+            self._beacon.stop()
         if self._server:
             self._server.close()
             await self._server.wait_closed()

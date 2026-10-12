@@ -192,3 +192,13 @@ async def test_the_same_controller_works_over_a_real_connection_to_a_remote_work
     out = await asyncio.wait_for(c.run("check the news on the macbook"), 3)
     assert out == "MacBook: done: check the news"
     await c.stop(); await server.stop()
+
+
+async def test_a_computer_not_in_the_new_request_does_not_keep_the_last_task_on_its_card():
+    c, workers, links, snaps = build({"Studio": quick, "MacBook": quick})
+    await c.start()
+    await asyncio.wait_for(c.run("close all tabs on the macbook"), 3)
+    await asyncio.wait_for(c.run("do the same on this mac"), 3)
+    await asyncio.sleep(0.1)
+    assert pc(snaps[-1], "MacBook")["task"] == "" and pc(snaps[-1], "Studio")["task"] != ""
+    await c.stop()
