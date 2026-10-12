@@ -12,7 +12,7 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 |---|---|
 | **Prometheus** (**F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
 | **Dictate** (**F9**) | Press, talk, press again: your words are typed at the cursor in any app. |
-| **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, refresh the widget, forget what it learned, clear all memory. After a run, thumbs up / down (with an optional note) tell it what worked. |
+| **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, refresh the widget, clear all memory. After a run, thumbs up / down (with an optional note) tell it what worked. |
 
 ## Screenshots
 
@@ -197,7 +197,7 @@ Then:
 | "Thanks, that's all" / "bye" | Ends the conversation with a friendly goodbye. |
 | "New conversation" or "you're stuck" | Clean context, keeps what it knows about you. |
 | "Start fresh" / "forget everything", or the trash button (two clicks) | Wipes conversations and facts (it keeps what it learned about *how* to do things). |
-| "Forget what you've learned", or the lightbulb button (two clicks) | Erases the learned lessons, routes and ratings (it keeps what it knows about you). |
+| "Forget what you've learned" | Erases the learned lessons, routes and ratings (it keeps what it knows about you). |
 | The refresh button | Refreshes the widget itself: clears the screen and reconnects. Nothing is forgotten. |
 | "What have you learned?" | Lists them. |
 | "Text only" / "speak to me" | Switches between spoken and silent replies (handy on speakers). |
