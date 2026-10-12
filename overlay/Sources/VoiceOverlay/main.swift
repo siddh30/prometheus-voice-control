@@ -197,6 +197,11 @@ MainActor.assumeIsolated {
         renderIcon(to: CommandLine.arguments[i + 1], swarm: CommandLine.arguments.contains("--swarm"))
         exit(0)
     }
+    if CommandLine.arguments.contains("--bench") {
+        _ = NSApplication.shared
+        runBench()
+        exit(0)
+    }
     if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
         _ = NSApplication.shared
         renderSnapshots(to: CommandLine.arguments[i + 1])

@@ -101,3 +101,27 @@ func renderSnapshots(to dir: String) {
         $0.approval = "Click 'Easy Apply' on Stripe — Senior PM?"
     }
 }
+
+
+/// `VoiceOverlay --bench`: how long one frame of each animated piece takes to build and draw, to compare their cost.
+@MainActor
+func runBench() {
+    func pc(_ n: String, _ state: String) -> [String: Any] {
+        ["name": n, "local": n == "Studio", "state": state, "detail": "", "task": "t", "checklist": [], "step": "", "result": "", "error": "", "approval": ""]
+    }
+    let board = SwarmBoard(["picked": "auto", "routing": "", "pcs": [pc("Studio", "idle"), pc("MacBook", "working"), pc("Mac mini", "working")]])!
+    func measure(_ name: String, _ view: () -> some View) {
+        var total = 0.0
+        let n = 60
+        for _ in 0..<n {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let r = ImageRenderer(content: view().frame(width: 440, height: 150))
+            r.scale = 1
+            _ = r.cgImage
+            total += CFAbsoluteTimeGetCurrent() - t0
+        }
+        print(String(format: "%-28@ %6.2f ms per frame", name as NSString, total / Double(n) * 1000))
+    }
+    measure("ribbons (single mode)") { Ribbons(palette: .convo, level: 0.5, phase: .thinking) }
+    measure("swarm map, 2 computers") { SwarmMap(board: board) { _ in } }
+}
