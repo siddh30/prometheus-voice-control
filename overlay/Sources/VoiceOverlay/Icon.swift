@@ -73,10 +73,53 @@ struct SwarmIconView: View {
     }
 }
 
-/// `VoiceOverlay --icon <out.png> [--swarm]` renders the 1024px app icon.
+/// The Prometheus Switch icon: the two apps, and the swap between them.
+struct SwitchIconView: View {
+    /// Five small computers around the middle of the swarm circle.
+    private var dots: [CGPoint] {
+        (0..<5).map { i in
+            let angle: Double = Double(i) * 2.0 * Double.pi / 5.0 - Double.pi / 2.0
+            return CGPoint(x: CGFloat(cos(angle)) * 78, y: CGFloat(sin(angle)) * 78)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 185, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.11, green: 0.12, blue: 0.18), Color(red: 0.03, green: 0.04, blue: 0.08)], startPoint: .top, endPoint: .bottom))
+            RoundedRectangle(cornerRadius: 185, style: .continuous).stroke(.white.opacity(0.12), lineWidth: 6)
+            ZStack {
+                ZStack {                                                              // Voice Control: its ribbons, in a circle
+                    Circle().fill(Color(red: 0.07, green: 0.07, blue: 0.14)).frame(width: 250, height: 250)
+                    Circle().stroke(LinearGradient(colors: [Color(red: 1.0, green: 0.30, blue: 0.45), Color(red: 0.55, green: 0.40, blue: 1.0)],
+                                                   startPoint: .top, endPoint: .bottom), lineWidth: 12).frame(width: 250, height: 250)
+                    Ribbons(palette: Palette(a: Color(red: 1.0, green: 0.30, blue: 0.45), b: Color(red: 0.30, green: 0.55, blue: 1.0),
+                                             c: Color(red: 0.55, green: 0.40, blue: 1.0)), level: 0.9, phase: .listening)
+                        .frame(width: 300, height: 200).scaleEffect(0.62).clipShape(Circle().inset(by: 14)).frame(width: 250, height: 250)
+                }
+                .offset(x: -215)
+                ZStack {                                                              // Prometheus Swarm: you and your computers, in a circle
+                    Circle().fill(Color(red: 0.04, green: 0.09, blue: 0.12)).frame(width: 250, height: 250)
+                    Circle().stroke(Color(red: 0.20, green: 0.83, blue: 0.60), lineWidth: 12).frame(width: 250, height: 250)
+                    Circle().fill(Color(red: 0.55, green: 0.40, blue: 1.0)).frame(width: 62, height: 62)
+                    ForEach(0..<dots.count, id: \.self) { i in
+                        Circle().fill(Color(red: 0.20, green: 0.83, blue: 0.60)).frame(width: 24, height: 24).offset(x: dots[i].x, y: dots[i].y)
+                    }
+                }
+                .offset(x: 215)
+                Image(systemName: "arrow.left.arrow.right").font(.system(size: 130, weight: .bold)).foregroundStyle(.white)
+            }
+        }
+        .frame(width: 824, height: 824)
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
+        .frame(width: 1024, height: 1024)
+    }
+}
+
+/// `VoiceOverlay --icon <out.png> [--swarm | --switch]` renders the 1024px app icon.
 @MainActor
-func renderIcon(to path: String, swarm: Bool = false) {
-    let r = ImageRenderer(content: Group { if swarm { SwarmIconView() } else { AppIconView() } })
+func renderIcon(to path: String, swarm: Bool = false, switcher: Bool = false) {
+    let r = ImageRenderer(content: Group { if switcher { SwitchIconView() } else if swarm { SwarmIconView() } else { AppIconView() } })
     r.scale = 1
     guard let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
           let png = rep.representation(using: .png, properties: [:]) else { print("icon render failed"); return }

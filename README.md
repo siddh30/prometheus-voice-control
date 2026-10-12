@@ -220,6 +220,13 @@ talk, press F10 again; the widget shows a map of your computers and a box with e
 Workers only accept connections that present your token, and they listen on your home network only if you install them that way.
 Details and diagrams are in `DESIGN.md`.
 
+## Switching between Voice Control and Prometheus Swarm
+
+The two apps both use F9 and F10, so only one can run at a time. **Prometheus Switch** is a small menu-bar app that swaps them: press
+**F12** and it quits whichever is running, waits until it has really exited, and opens the other. If neither is running, F12 opens the
+one you used last. Install it once with `scripts/build_switcher.sh`, then open it (its menu has "Open at login"). It never force-quits an
+app; if one won't quit it tells you which.
+
 ## Configuration
 
 Everything is in `config.yaml` (hotkeys, models, voice, speed, pause length, memory limits, browser backend). Common tweaks:

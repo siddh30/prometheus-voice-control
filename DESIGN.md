@@ -268,6 +268,8 @@ fake in a test) and nothing else changes. A guard test per row fails if code rea
 | `SwarmBoard`, `SwarmPC` | `SwarmView.swift` | The swarm event, parsed once; every computer's state, checklist, step, result |
 | `SwarmMap`, `SwarmOrb` | `SwarmView.swift` | You in the middle, your computers around you; dashed links flow while one works; tap to pick, AUTO to let the router decide |
 | `SwarmBox` | `SwarmView.swift` | The black box: per computer, its ticks, step and result. No separate final answer |
+| `Mode`, `plan(running:last:)` | `Plan.swift` | Prometheus Switch: the two apps by bundle id, and what one press of F12 does (a pure, tested function) |
+| `Switcher` | `PrometheusSwitch/main.swift` | The menu-bar app: the F12 key tap, quit-wait-open, the menu. It never force-quits |
 
 ## Pathways
 
@@ -438,6 +440,24 @@ stateDiagram-v2
 A task has its own states, reported by the worker's monitor: `working`, `stalled` (running but quiet for 30 s; waiting for your
 yes or no does not count), `waiting` (approval), `done`, `failed`. The widget shows the connection problem first, otherwise the
 work. Worker side: a controller that disconnects takes its tasks with it.
+
+### Switching between the apps
+
+```mermaid
+flowchart LR
+    F12["F12<br/>(swallowed, so macOS does not also use it as volume)"] --> PLAN{"plan(running, last)"}
+    PLAN -- "one app running" --> QUIT["quit it, gracefully<br/>(its voice daemon stops with it)"]
+    QUIT --> WAIT{"gone within 12 s?"}
+    WAIT -- no --> TELL["say which app didn't quit<br/>never force-quit"]
+    WAIT -- yes --> OPEN["open the other app"]
+    PLAN -- "nothing running" --> LAST["open the one used last<br/>(single mode the first time)"]
+    MENU["menu-bar item<br/>Switch now, Open Voice Control, Open Prometheus Swarm,<br/>Open at login"] --> PLAN
+```
+
+Voice Control and Prometheus Swarm both own F9 and F10, so only one can run at a time (each refuses to open while the other is
+running). Prometheus Switch is a third, tiny menu-bar app that swaps them: it has no daemon and no window, only the F12 key and a
+menu. The decision is a pure function in `Plan.swift`, compiled and tested on its own. Install it once with
+`scripts/build_switcher.sh`; it asks for the same Accessibility and Input Monitoring permissions as the other apps.
 
 ### Releases and profiles
 

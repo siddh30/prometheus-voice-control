@@ -39,8 +39,8 @@ def test_the_files_the_design_names_exist():
     assert named
     for name in named:
         py = pathlib.Path("src/voicectl") / name
-        swift = pathlib.Path("overlay/Sources/VoiceOverlay") / name
-        assert py.exists() or swift.exists(), f"DESIGN.md names {name}, which does not exist"
+        swift = list(pathlib.Path("overlay/Sources").glob(f"*/{name}"))
+        assert py.exists() or swift, f"DESIGN.md names {name}, which does not exist"
 
 
 def test_every_interface_has_its_place_in_the_design():
@@ -48,7 +48,7 @@ def test_every_interface_has_its_place_in_the_design():
                    "tts/engines.py", "platform/__init__.py", "core/memory.py", "core/learnings.py", "stt/base.py"):
         assert needed in DESIGN, f"{needed} is not in the interface table"
     for pathway in ("Voice input (push-to-talk)", "Typing", "Commands (widget to daemon)", "Events (daemon to widget)", "Screen and mouse",
-                    "Dictation (F9)", "Approvals", "Music mode", "Swarm request", "Swarm links and stalls", "Releases and profiles"):
+                    "Dictation (F9)", "Approvals", "Music mode", "Swarm request", "Swarm links and stalls", "Switching between the apps", "Releases and profiles"):
         assert f"### {pathway}" in DESIGN, f"no diagram for {pathway}"
 
 

@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let other = otherAppIsOpen() {
             let alert = NSAlert()
             alert.messageText = "\(other) is already open"
-            alert.informativeText = "Both apps use F9 and F10, so only one can run at a time. Quit \(other) first, then open this one again."
+            alert.informativeText = "Both apps use F9 and F10, so only one can run at a time. Press F12 (Prometheus Switch) to switch, or quit \(other) first and open this one again."
             alert.runModal()
             NSApp.terminate(nil)
             return
@@ -194,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 MainActor.assumeIsolated {
     if let i = CommandLine.arguments.firstIndex(of: "--icon"), i + 1 < CommandLine.arguments.count {
         _ = NSApplication.shared
-        renderIcon(to: CommandLine.arguments[i + 1], swarm: CommandLine.arguments.contains("--swarm"))
+        renderIcon(to: CommandLine.arguments[i + 1], swarm: CommandLine.arguments.contains("--swarm"), switcher: CommandLine.arguments.contains("--switch"))
         exit(0)
     }
     if CommandLine.arguments.contains("--bench") {
