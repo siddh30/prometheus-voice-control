@@ -139,3 +139,15 @@ def test_the_swarm_router_is_told_what_the_user_said_about_similar_runs(monkeypa
     pcs = [PC("Studio", local=True), PC("MacBook")]
     __import__('asyncio').run(Router(pcs).route("open gmail and play music", hint="- the user liked it when music ran on the Studio"))
     assert "liked it when music ran on the Studio" in seen["system"]
+
+
+def test_both_with_a_different_job_for_each_is_a_split_not_the_same_job_twice(monkeypatch):
+    _fake([{"pc": "Studio", "task": "test browser automation"}, {"pc": "MacBook", "task": "search claude code co-work"}], monkeypatch)
+    r = route("can you test on both macs and come back with different results, the first thing is browser automation and the other thing is claude code co-work")
+    assert r.how == "split" and [a.pc for a in r.assignments] == ["Studio", "MacBook"]
+
+
+def test_a_follow_up_that_names_a_computer_goes_there_and_the_other_one_keeps_its_words():
+    assert pairs(route("what about the macbook")) == [("MacBook", "what")] or route("what about the macbook").assignments[0].pc == "MacBook"
+    two = [PC("Studio", local=True), PC("MacBook", ("laptop",))]
+    assert pairs(route("what about the other mac?", pcs=two)) == [("MacBook", "what about the other mac?")]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -11,6 +12,11 @@ from voicectl.swarm.link import Link, LinkState, LinkUnavailable
 from voicectl.swarm.router import Router
 
 log = logging.getLogger("voicectl.swarm.controller")
+
+# A worker that needs another computer says so in plain words on its last line: "HANDOFF MacBook: open the file I saved and ...".
+# No tool and no protocol: it is text in the answer, which the controller reads, removes, and sends on.
+HANDOFF = re.compile(r"^[ \t>*-]*HANDOFF\s+([^:\n]+?)\s*:\s*(.+?)\s*$", re.I | re.M)
+MAX_HOPS = 3
 
 
 class SwarmController:
@@ -24,6 +30,9 @@ class SwarmController:
         self._waits: dict[str, asyncio.Future] = {}          # task id -> resolved when that task reaches done / failed
         self._flusher: asyncio.Task | None = None
         self._published = -1
+        self._hops: dict[str, int] = {}                      # task id -> how many handovers deep it is
+        self._seen: set[tuple[str, str]] = set()             # (computer, job) already given in this request: a loop is cut here
+        self._involved: list[str] = []                       # every computer that worked on this request, in order
 
     # ---- lifecycle ----
     async def start(self) -> None:
@@ -59,10 +68,60 @@ class SwarmController:
 
     def _on_event(self, pc: str, event: dict[str, Any]) -> None:
         changed = self.board.apply(pc, event)
+        if changed and event.get("type") == "done":
+            self._hand_over(pc, event.get("id", ""))             # before the finished task is resolved, so the request knows more work is coming
         if changed and event.get("type") in ("done", "failed"):
             self._resolve(event.get("id", ""))
         elif changed and event.get("type") == "approval":
             self.bus.publish("approval", text=f"{pc}: {event.get('text', 'Approve this action?')}")      # the usual Approve / Deny panel
+
+    def _swarm_note(self, me: str, online: set[str]) -> str:
+        """Tells a worker it is one of several computers, and how to pass work on: plain words, no tool."""
+        others = [p for p in self.router.pcs if p.name != me and p.name in online]
+        if not others:
+            return ""
+        names = ", ".join(f"{p.name} ({', '.join(p.aliases)})" if p.aliases else p.name for p in others)
+        return (f"<Swarm>\nYou are the agent on the computer called {me}. The user's other computers: {names}. Do your own part of the job here. "
+                "If a part of it has to happen on another computer, or needs something from it, first do everything you can here, then end your "
+                "reply with one line per handover, exactly: HANDOFF <computer name>: <what it must do, with everything it needs from your work>. "
+                "Only hand over when the job really needs that computer. Never hand back work you were just handed.\n</Swarm>")
+
+    def _hand_over(self, pc: str, task_id: str) -> None:
+        """A finished worker asked another computer to carry on. Start that now, in the same request, with what this one found."""
+        s = self.board.pcs[pc]
+        found = HANDOFF.findall(s.result)
+        if not found:
+            return
+        s.result = HANDOFF.sub("", s.result).strip()
+        hops = self._hops.get(task_id, 0) + 1
+        for target, job in found:
+            other = self.router._find(target.strip().strip("*`\"'"))
+            key = (other.name if other else target.strip().lower(), re.sub(r"\W+", " ", job.lower()).strip())
+            if other is None or other.name == pc or hops > MAX_HOPS or key in self._seen:
+                log.info("handover from %s to %r ignored (unknown, itself, too deep, or a repeat)", pc, target)
+                continue
+            self._seen.add(key)
+            self._start_task(other.name, job.strip(), f"<HandedOver from=\"{pc}\">\n{s.result or s.task}\n</HandedOver>", hops, origin=pc)
+            s.passed_to = other.name
+        self.board._touch()
+
+    def _start_task(self, pc: str, text: str, context: str, hops: int, origin: str = "") -> None:
+        task_id = uuid.uuid4().hex[:12]
+        self.board.start(pc, task_id, text, origin)
+        self._hops[task_id] = hops
+        if pc not in self._involved:
+            self._involved.append(pc)
+        fut = asyncio.get_running_loop().create_future()
+        self._waits[task_id] = fut
+        async def send() -> None:
+            try:
+                if self.links[pc].state is not LinkState.ONLINE:
+                    raise LinkUnavailable(f"{pc} is {self.links[pc].state.value}")
+                await self.links[pc].send_task(task_id, text, context)
+            except LinkUnavailable as e:
+                self.board.fail(pc, str(e))
+                self._resolve(task_id)
+        asyncio.get_running_loop().create_task(send())
 
     def _resolve(self, task_id: str) -> None:
         fut = self._waits.pop(task_id, None)
@@ -80,33 +139,25 @@ class SwarmController:
         for name, state in list(self.board.pcs.items()):                         # last request's cards must not linger: it looks like they did this one too
             if name not in involved and state.run in ("idle", "done", "failed"):
                 self.board.reset(name)
-        started: list[tuple[str, str]] = []
+        self._hops.clear(); self._seen.clear(); self._involved = []
         for a in routed.assignments:
-            task_id = uuid.uuid4().hex[:12]
-            self.board.start(a.pc, task_id, a.task)
-            fut = asyncio.get_running_loop().create_future()
-            self._waits[task_id] = fut
-            try:
-                if a.pc not in online:
-                    raise LinkUnavailable(f"{a.pc} is {self.links[a.pc].state.value}")
-                await self.links[a.pc].send_task(task_id, a.task, context)
-                started.append((a.pc, task_id))
-            except LinkUnavailable as e:
-                self.board.fail(a.pc, str(e))
-                self._resolve(task_id)
+            self._seen.add((a.pc, re.sub(r"\W+", " ", a.task.lower()).strip()))
+            self._start_task(a.pc, a.task, f"{self._swarm_note(a.pc, online)}\n{context}".strip(), 0)
         self.publish_now()
         try:
-            await asyncio.gather(*(self._waits[t] for _, t in started if t in self._waits))
+            while self._waits:                               # handovers add work while we wait: keep going until nothing is left
+                await asyncio.gather(*list(self._waits.values()))
+                await asyncio.sleep(0)
         except asyncio.CancelledError:
             await self.cancel_all()                          # F10 / Esc while working: stop the work everywhere
             raise
-        return self._summary(routed.assignments)
+        return self._summary()
 
-    def _summary(self, assignments) -> str:
+    def _summary(self) -> str:
         parts = []
-        for a in assignments:
-            s = self.board.pcs[a.pc]
-            parts.append(f"{a.pc}: {s.result or s.error or s.run}")
+        for name in self._involved:
+            s = self.board.pcs[name]
+            parts.append(f"{name}: {s.result or s.error or s.run}")
         return "; ".join(parts)
 
     async def cancel_all(self) -> None:

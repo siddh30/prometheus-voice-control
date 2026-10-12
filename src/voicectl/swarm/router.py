@@ -46,9 +46,10 @@ DEVICE = r"(?:computers?|pcs?|macs?|machines?|laptops?|devices?)"
 ALL = re.compile(rf"\b(?:(?:on|in|across|for)\s+both(?:\s+of\s+(?:them|my\s+{DEVICE}))?(?:\s+{DEVICE})?|both\s+{DEVICE}|both\s+of\s+(?:them|my\s+{DEVICE})"
                  rf"|all(?:\s+of)?(?:\s+(?:my|the))?\s+{DEVICE}|all\s+of\s+them|every\s+{DEVICE}|everywhere)\b", re.I)
 # "on different computers", "one on each", "split it": the request has to be divided, which only a model can do
-SPLIT = re.compile(rf"\b(?:different|separate|each|several|multiple)\s+{DEVICE}\b|\bone\s+(?:on|per)\s+each\b|\bsplit\s+(?:it|them|this|that)\b", re.I)
+SPLIT = re.compile(rf"\b(?:different|separate|each|several|multiple)\s+{DEVICE}\b|\bone\s+(?:on|per)\s+each\b|\bone\s+each\b|\bsplit\s+(?:it|them|this|that)\b"
+                   rf"|\b(?:different|separate)\s+(?:results?|tests?|things?|tasks?|jobs?|searches|ones?)\b|\bthe\s+other\s+(?:thing|task|job|test)\b", re.I)
 OTHER = re.compile(r"\b(?:on\s+)?(?:the\s+|my\s+)?(?:other|another)\s+(?:one|computer|pc|mac|machine|laptop)\b|\belsewhere\b", re.I)
-LEAD = r"(?:on|to|in|from|using|with|at|of|for|via|through)\s+(?:my\s+|the\s+)?"
+LEAD = r"(?:on|to|in|from|using|with|at|of|for|via|through|about|ask|tell|check|test(?:\s+on)?|connect(?:\s+to)?)\s+(?:my\s+|the\s+)?"
 TASK_SPLIT = re.compile(r"\s*(?:,\s*(?:and\s+)?|\band\s+(?:then\s+)?|\bthen\s+)\s*(?=\S)", re.I)
 
 ASSIGN_TOOL = {
@@ -80,7 +81,7 @@ class Router:
 
     def _alias_regex(self, pc: PC) -> re.Pattern:
         alts = "|".join(re.escape(n) for n in sorted(pc.names, key=len, reverse=True))
-        pattern = rf"\b{LEAD}(?:{alts})\b|^(?:hey\s+|ok(?:ay)?\s+)?(?:the\s+|my\s+)?(?:{alts})\s*[,:]\s*"      # "on the MacBook", "of the MacBook", "MacBook, open it"
+        pattern = rf"\b{LEAD}(?:{alts})\b|\b(?:the|my)\s+(?:{alts})\b|^(?:hey\s+|ok(?:ay)?\s+)?(?:the\s+|my\s+)?(?:{alts})\s*[,:]\s*"      # "on the MacBook", "of the MacBook", "MacBook, open it"
         if pc.here:                                                              # "this Mac" / "here" need no lead word
             here = "|".join(re.escape(n) for n in sorted(pc.here, key=len, reverse=True))
             pattern += rf"|\b(?:{LEAD})?(?:{here})\b"
@@ -94,14 +95,14 @@ class Router:
         if picked and (pc := self._find(picked)):
             return Routed([Assignment(pc.name, text)], "picked")
 
+        if SPLIT.search(text) and len(usable) > 1:                                  # "on different computers", "one each": the request must be divided, even if it also says "both"
+            asked = await self._ask_model(text, usable, spread=True, hint=hint)
+            if asked.how == "llm":
+                return Routed(asked.assignments, "split")
+
         if ALL.search(text):
             task = re.sub(r"\s{2,}", " ", ALL.sub(" ", text)).strip(" ,.") or text
             return Routed([Assignment(p.name, task) for p in usable or self.pcs], "all")
-
-        if SPLIT.search(text) and len(usable) > 1:                                  # "on different computers": the request must be divided
-            asked = await self._ask_model(text, usable, hint=hint)
-            if asked.how == "llm":
-                return asked
 
         named, guessed = self._named_clauses(text)
         if named and guessed and len(usable) > 1:                                    # some parts name a computer and some do not: don't guess who gets those
@@ -114,6 +115,8 @@ class Router:
         if OTHER.search(text):
             others = [p for p in usable if not p.local]
             task = re.sub(r"\s{2,}", " ", OTHER.sub(" ", text)).strip(" ,.") or text
+            if len(task.split()) < 2 or re.match(r"(?:what|how)\s+about\b", task, re.I):    # "what about the other Mac?" left as "what about ?": keep the words, the context carries the rest
+                task = text
             if len(others) == 1:
                 return Routed([Assignment(others[0].name, task)], "other")
             if len(others) > 1:

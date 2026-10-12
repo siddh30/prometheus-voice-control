@@ -24,6 +24,8 @@ class PCState:
     result: str = ""
     error: str = ""
     approval: str = ""
+    origin: str = ""                             # this task was handed over by that computer, mid-task
+    passed_to: str = ""                          # this computer handed work on to that computer
 
     @property
     def state(self) -> str:
@@ -35,7 +37,7 @@ class PCState:
     def view(self) -> dict[str, Any]:
         return {"name": self.name, "local": self.local, "state": self.state, "detail": self.detail, "task": self.task,
                 "checklist": list(self.checklist), "step": self.step, "result": self.result, "error": self.error,
-                "approval": self.approval}
+                "approval": self.approval, "from": self.origin, "to": self.passed_to}
 
 
 class Board:
@@ -63,10 +65,12 @@ class Board:
         return True
 
     # ---- work ----
-    def start(self, pc: str, task_id: str, task: str) -> None:
+    def start(self, pc: str, task_id: str, task: str, origin: str = "") -> None:
         s = self.pcs[pc]
         s.task_id, s.task, s.run = task_id, task, WORKING
         s.checklist, s.step, s.result, s.error, s.approval = [], "", "", "", ""
+        s.origin = origin
+        s.passed_to = ""
         self._touch()
 
     def fail(self, pc: str, error: str) -> None:
@@ -107,7 +111,7 @@ class Board:
     def reset(self, pc: str) -> None:
         """Work on this computer was cancelled: its card goes back to resting."""
         s = self.pcs[pc]
-        s.task_id = s.task = s.step = s.result = s.error = s.approval = ""
+        s.task_id = s.task = s.step = s.result = s.error = s.approval = s.origin = s.passed_to = ""
         s.run, s.checklist = IDLE, []
         self._touch()
 

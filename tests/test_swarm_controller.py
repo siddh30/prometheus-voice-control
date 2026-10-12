@@ -202,3 +202,35 @@ async def test_a_computer_not_in_the_new_request_does_not_keep_the_last_task_on_
     await asyncio.sleep(0.1)
     assert pc(snaps[-1], "MacBook")["task"] == "" and pc(snaps[-1], "Studio")["task"] != ""
     await c.stop()
+
+
+async def test_a_worker_can_pass_work_on_mid_task_in_plain_words_and_the_request_waits_for_it():
+    seen = {}
+    async def studio(task):
+        seen["studio"] = task.context
+        return "Found the link: example.com/report.\nHANDOFF MacBook: open example.com/report and read me the title"
+    async def macbook(task):
+        seen["macbook"] = task.context
+        return "The title is Q3 Report."
+    c, workers, links, snaps = build({"Studio": studio, "MacBook": macbook})
+    await c.start()
+    out = await asyncio.wait_for(c.run("find the report link"), 3)
+    await asyncio.sleep(0.1)
+    assert "Studio: Found the link: example.com/report." in out and "MacBook: The title is Q3 Report." in out
+    assert "HANDOFF" not in out                                                        # the handover line is not shown as an answer
+    assert "<Swarm>" in seen["studio"] and "MacBook" in seen["studio"]                 # the worker was told about the other computers
+    assert '<HandedOver from="Studio">' in seen["macbook"] and "example.com/report" in seen["macbook"]
+    last = snaps[-1]
+    assert pc(last, "Studio")["to"] == "MacBook" and pc(last, "MacBook")["from"] == "Studio"
+    assert pc(last, "MacBook")["task"] == "open example.com/report and read me the title"
+    await c.stop()
+
+
+async def test_a_handover_loop_is_cut_and_an_unknown_computer_is_ignored():
+    async def studio(task): return "ok\nHANDOFF MacBook: do the thing\nHANDOFF Nowhere: do it there"
+    async def macbook(task): return "done\nHANDOFF Studio: do the thing\nHANDOFF MacBook: do the thing"
+    c, workers, links, snaps = build({"Studio": studio, "MacBook": macbook})
+    await c.start()
+    out = await asyncio.wait_for(c.run("start"), 3)
+    assert "Studio" in out and "MacBook" in out and "Nowhere" not in out
+    await c.stop()

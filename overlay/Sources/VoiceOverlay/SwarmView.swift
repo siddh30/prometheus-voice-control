@@ -23,10 +23,12 @@ struct SwarmPC: Identifiable, Equatable {
     let result: String
     let error: String
     let approval: String
+    var origin = ""            // handed this task by that computer, mid-task
+    var passedTo = ""          // handed work on to that computer
 
     static func == (a: SwarmPC, b: SwarmPC) -> Bool {
         a.name == b.name && a.state == b.state && a.task == b.task && a.step == b.step && a.result == b.result && a.error == b.error
-            && a.detail == b.detail && a.approval == b.approval && a.checklist.map(\.text) == b.checklist.map(\.text) && a.checklist.map(\.status) == b.checklist.map(\.status)
+            && a.detail == b.detail && a.approval == b.approval && a.origin == b.origin && a.passedTo == b.passedTo && a.checklist.map(\.text) == b.checklist.map(\.text) && a.checklist.map(\.status) == b.checklist.map(\.status)
     }
 
     var busy: Bool { state == "working" || state == "waiting" || state == "stalled" }
@@ -69,7 +71,7 @@ struct SwarmBoard: Equatable {
             return SwarmPC(name: p["name"] as? String ?? "", local: p["local"] as? Bool ?? false, state: p["state"] as? String ?? "idle",
                            detail: p["detail"] as? String ?? "", task: p["task"] as? String ?? "", checklist: items,
                            step: p["step"] as? String ?? "", result: p["result"] as? String ?? "", error: p["error"] as? String ?? "",
-                           approval: p["approval"] as? String ?? "")
+                           approval: p["approval"] as? String ?? "", origin: p["from"] as? String ?? "", passedTo: p["to"] as? String ?? "")
         }
         picked = data["picked"] as? String ?? "auto"
         routing = data["routing"] as? String ?? ""
@@ -222,6 +224,9 @@ struct SwarmBox: View {
                         Text(pc.label).font(.system(size: 8, weight: .bold, design: .rounded)).tracking(1.0).foregroundStyle(pc.color)
                         Spacer(minLength: 0)
                     }
+                    if !pc.origin.isEmpty {
+                        Label("handed over by \(pc.origin)", systemImage: "arrow.turn.down.right").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(SwarmStyle.accent)
+                    }
                     if !pc.task.isEmpty {
                         Text(pc.task).font(.system(size: 11, design: .rounded)).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
                     }
@@ -251,6 +256,9 @@ struct SwarmBox: View {
                     }
                     if !pc.result.isEmpty {
                         Text(pc.result).font(.system(size: 12, design: .rounded)).foregroundStyle(.white.opacity(0.92)).lineLimit(14)
+                    }
+                    if !pc.passedTo.isEmpty {
+                        Label("passed on to \(pc.passedTo)", systemImage: "arrow.turn.up.right").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(SwarmStyle.accent)
                     }
                     if !pc.error.isEmpty {
                         Text(pc.error).font(.system(size: 11, design: .rounded)).foregroundStyle(SwarmStyle.bad).lineLimit(3)
