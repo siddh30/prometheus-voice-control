@@ -14,6 +14,7 @@ COMMANDS: dict[str, dict[str, tuple[type, bool]]] = {
     "maintenance":  {},                                          # tidy memory now
     "key":          {"name": (str, True), "down": (bool, True)}, # a hotkey seen by the app (it owns the macOS permissions)
     "approval":     {"approved": (bool, True)},                  # answer to an approval request
+    "swarm_pick":   {"pc": (str, True)},                         # send requests to this computer ("auto" = let the router decide)
     "input_result": {"id": (str, True)},                         # the app's answer to an input_request (screenshot, click, keys)
 }
 

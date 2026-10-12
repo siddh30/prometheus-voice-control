@@ -2,5 +2,10 @@
 # Same keys as single mode (F9 dictate, F10 Prometheus, inherited from config.yaml). Push-to-talk, no wake word.
 ui:
   ws_port: 8767         # Voice Control uses 8765, dev uses 8766
+hotkeys:
+  prometheus: ""         # the swarm replaces Prometheus on F10
+  swarm: f10             # press to record, press again to send: the same push-to-talk as single mode
+swarm:
+  enabled: true
 telemetry:
   project: voicectl-swarm

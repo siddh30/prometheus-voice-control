@@ -269,7 +269,11 @@ class ConversationMode(Mode):
         if not text:
             return
         self.text.note_typed()
-        self._cut_off()
+        if self.keep_turn_on_speech():                  # an approval question is waiting for your yes/no: don't cancel the step it is for
+            if self.ctx.speaker:
+                self.ctx.speaker.stop()
+        else:
+            self._cut_off()
         self.ctx.bus.publish("transcript", text=text, mode=self.name)
         if is_goodbye(text):
             await self._goodbye(farewell(text))

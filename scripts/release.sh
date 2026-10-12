@@ -55,10 +55,11 @@ c = load_config()
 import os
 assert PROFILE == os.environ["PROFILE_NAME"], PROFILE
 assert str(DATA_DIR).endswith(os.environ["SUPPORT_NAME"] + "/data"), DATA_DIR
-assert c.get("ui.ws_port") == int(os.environ["PORT"]) and c.get("hotkeys.prometheus") == "f10", "installed app must use its own port and the F10 key"
+key = "swarm" if PROFILE == "swarm" else "prometheus"
+assert c.get("ui.ws_port") == int(os.environ["PORT"]) and c.get(f"hotkeys.{key}") == "f10", "installed app must use its own port and the F10 key"
 if PROFILE == "swarm":
-    assert c.get("wake_word.enabled") is False, "the swarm app has no wake word"
-print("   profile stable | data", DATA_DIR, "| port", c.get("ui.ws_port"), "| key", c.get("hotkeys.prometheus"))
+    assert c.get("swarm.enabled") is True, "the swarm app must have the swarm switched on"
+print("   profile", PROFILE, "| data", DATA_DIR, "| port", c.get("ui.ws_port"), "| key", c.get(f"hotkeys.{key}"))
 PY
 )
 

@@ -30,3 +30,6 @@ overlay/.build/
 
 # tool output
 graphify-out/
+
+# per-machine settings (your other computers, addresses)
+config.local.yaml

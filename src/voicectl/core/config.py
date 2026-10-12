@@ -55,7 +55,8 @@ def load_config(path: Path | None = None) -> Config:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     path = path or ROOT / "config.yaml"
     raw = yaml.safe_load(path.read_text()) or {}
-    overlay = path.with_name(f"config.{PROFILE}.yaml")
-    if overlay.exists():
-        raw = _merge(raw, yaml.safe_load(overlay.read_text()) or {})
+    for layer in (f"config.{PROFILE}.yaml", "config.local.yaml"):      # the profile, then this machine's own settings (git-ignored)
+        overlay = path.with_name(layer)
+        if overlay.exists():
+            raw = _merge(raw, yaml.safe_load(overlay.read_text()) or {})
     return Config(raw)

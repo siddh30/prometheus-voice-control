@@ -166,6 +166,7 @@ widget builds commands only through `Command` in `Protocol.swift`, and a test fa
 | `maintenance` | none | Tidy memory now. |
 | `key` | `name`, `down` | A hotkey seen by the app (F9 / F10 / Esc). The app owns the macOS permissions. |
 | `approval` | `approved` | The answer to an approval question (Approve / Deny buttons). |
+| `swarm_pick` | `pc` | Send requests to this computer; `auto` lets the router decide (swarm app only). |
 | `input_result` | `id` | The app's answer to an `input_request`: a screenshot, or a click / key press done. |
 
 ### Daemon to front end: events
@@ -197,6 +198,7 @@ widget handles. (`?` marks an optional field, which may also be empty.)
 | `cost` | `usd`, `turns` | Cost in dollars and the number of agent turns of the last run. |
 | `input_request` | `id`, `op` | The agent asks the app to look at or act on the screen. |
 | `paste` | `text` | Dictation text for the app to paste at the cursor. |
+| `swarm` | `pcs`, `picked`?, `routing`? | Every computer in the swarm: its state (idle, working, waiting, stalled, not responding, offline, done, failed), checklist, step, result (swarm app only). |
 
 ### Python interfaces
 

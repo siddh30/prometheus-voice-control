@@ -92,3 +92,12 @@ memory:
   max_facts: 200              # saved facts are capped; the ones you asked it to remember are never auto-deleted
   max_log_mb: 5               # log files over this are trimmed to their last megabyte
   max_rss_mb: 3500            # if the background process grows past this while idle, it restarts itself
+
+swarm:
+  enabled: false              # the "Prometheus Swarm" app turns this on (config.swarm.yaml); single mode never uses it
+  # name: Studio              # this computer's name; the others go in config.local.yaml (git-ignored):
+  # pcs:
+  #   - {name: MacBook, host: 192.168.1.20, port: 8781, aliases: [laptop]}
+  stall_after_s: 30           # a worker's task that has been quiet this long shows as "stalled"
+  silent_after_s: 8           # a computer that sends no heartbeat for this long shows as "not responding"
+  router_model: claude-haiku-4-5

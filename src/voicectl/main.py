@@ -44,7 +44,8 @@ async def run() -> None:
     await asyncio.to_thread(stt.warm_up)
 
     convo_stt = None
-    primary = "prometheus" if "prometheus" in mode_objs else "assistant"
+    swarm_on = bool(config.get("swarm.enabled", False)) and "swarm" in mode_objs
+    primary = "swarm" if swarm_on else "prometheus" if "prometheus" in mode_objs else "assistant"
     if primary in mode_objs:          # conversation uses a faster model than dictation: speed matters more than the last 2% accuracy
         import copy
         c = copy.deepcopy(config.raw)
@@ -101,9 +102,29 @@ async def run() -> None:
                                  session.key_down, session.key_up, session.cancel)
         hotkeys.start()
 
+    controller = None
+    if swarm_on:                                             # the swarm app: this computer plus the others in config.local.yaml
+        from voicectl.swarm.settings import SwarmConfigError, build_controller
+        try:
+            controller = build_controller(config, bus, os.environ.get("SWARM_TOKEN", ""))
+        except SwarmConfigError as e:
+            log.error("%s Running on this computer only.", e)
+            bus.publish("error", message=f"{e} Running on this computer only.")
+            controller = build_controller(type(config)({**config.raw, "swarm": {**(config.get("swarm") or {}), "pcs": []}}), bus, "")
+        ctx.shared["swarm_controller"] = controller
+        control.on("swarm_pick", lambda cmd: controller.pick(cmd["pc"]))
+        control.on("approval", lambda cmd: asyncio.get_running_loop().create_task(controller.approve(cmd["approved"])))
+        await controller.start()
+
+    def widget_snapshot() -> list[dict]:
+        out = [{"type": "voice", "data": {"on": speaker.voice_on}}]
+        if controller:                                       # a widget that connects late still sees every computer
+            out.append({"type": "swarm", "data": controller.board.snapshot()})
+        return out
+
     bridge = UIBridge(bus, config.get("ui.ws_host", "127.0.0.1"), config.get("ui.ws_port", 8765),
                       hello={"hotkeys": hotkey_map, "cancel": cancel_key},
-                      snapshot=lambda: [{"type": "voice", "data": {"on": speaker.voice_on}}])
+                      snapshot=widget_snapshot)
     bridge_task = asyncio.create_task(bridge.run())
 
     async def log_events() -> None:
@@ -146,6 +167,8 @@ async def run() -> None:
             hotkeys.stop()
         bridge_task.cancel()
         control.stop()
+        if controller:
+            await controller.stop()
         maint.stop()
 
 

@@ -27,6 +27,7 @@ EVENTS: dict[str, dict[str, tuple[Any, bool]]] = {
     "cost":        {"usd": ((int, float), True), "turns": (int, True)},
     "input_request": {"id": (str, True), "op": (str, True)},                   # the agent asks the app to look at / act on the screen
     "paste":       {"text": (str, True)},
+    "swarm":       {"pcs": (list, True), "picked": (str, False), "routing": (str, False)},   # every computer in the swarm: its state, checklist and result
 }
 
 
