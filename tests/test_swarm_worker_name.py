@@ -9,8 +9,8 @@ class Config(dict):
 
 
 def test_the_env_key_wins(monkeypatch):
-    monkeypatch.setenv("SWARM_WORKER_NAME", "siddharthsair2")
-    assert worker_name(Config({"swarm.worker.name": "FromConfig"})) == "siddharthsair2"
+    monkeypatch.setenv("SWARM_WORKER_NAME", "macbook-air")
+    assert worker_name(Config({"swarm.worker.name": "FromConfig"})) == "macbook-air"
 
 
 def test_then_the_config_then_the_hostname(monkeypatch):
