@@ -194,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 MainActor.assumeIsolated {
     if let i = CommandLine.arguments.firstIndex(of: "--icon"), i + 1 < CommandLine.arguments.count {
         _ = NSApplication.shared
-        renderIcon(to: CommandLine.arguments[i + 1])
+        renderIcon(to: CommandLine.arguments[i + 1], swarm: CommandLine.arguments.contains("--swarm"))
         exit(0)
     }
     if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {

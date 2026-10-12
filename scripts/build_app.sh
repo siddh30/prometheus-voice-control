@@ -16,7 +16,9 @@ BIN=overlay/.build/release/VoiceOverlay
 
 # icon: render 1024px PNG -> .iconset -> .icns
 T=$(mktemp -d)
-"$BIN" --icon "$T/icon.png" > /dev/null
+ICON_ARGS=""
+case "$ID_SUFFIX" in *swarm*) ICON_ARGS="--swarm" ;; esac      # the swarm app gets its own icon (a network, not a voice)
+"$BIN" --icon "$T/icon.png" $ICON_ARGS > /dev/null
 mkdir "$T/AppIcon.iconset"
 for s in 16 32 64 128 256 512; do
   sips -z $s $s "$T/icon.png" --out "$T/AppIcon.iconset/icon_${s}x${s}.png" > /dev/null
