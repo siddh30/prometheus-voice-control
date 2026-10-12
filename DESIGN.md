@@ -200,6 +200,39 @@ widget handles. (`?` marks an optional field, which may also be empty.)
 | `paste` | `text` | Dictation text for the app to paste at the cursor. |
 | `swarm` | `pcs`, `picked`?, `routing`? | Every computer in the swarm: its state (idle, working, waiting, stalled, not responding, offline, done, failed), checklist, step, result (swarm app only). |
 
+### Swarm: controller to worker
+
+The swarm (the separate "Prometheus Swarm" app) has one more contract: the controller on the computer you speak on
+talks to a worker on each computer over an authenticated WebSocket (or in process, for this computer). It is described and
+checked with the same schema tool as the front-end contract (`api/schema.py`), in `swarm/protocol.py`. (`?` marks an optional field.)
+
+Controller to worker:
+
+| Message | Fields | What it does |
+|---|---|---|
+| `hello` | `token`, `controller`?, `version`? | First message on a connection: the shared token (`SWARM_TOKEN`). Anything else first, or a wrong token, is refused. |
+| `task` | `id`, `text`, `context`? | Do this. `context` is the last few exchanges, so "now do the same on the other one" makes sense. |
+| `cancel` | `id` | Stop this task now. |
+| `approval` | `id`, `approved` | The answer to a worker's approval request. |
+| `ping` | none | Are you there? (Heartbeats already say so; this is for tools.) |
+
+Worker to controller:
+
+| Message | Fields | What it means |
+|---|---|---|
+| `welcome` | `name`, `version` | The token was accepted: this worker's name and the protocol version. |
+| `rejected` | `reason` | Bad token or protocol; the connection is closed. |
+| `heartbeat` | none | Every few seconds, whatever the task is doing: this computer is alive. Never shown, only counted. |
+| `started` | `id` | The worker has begun the task. |
+| `checklist` | `id`, `items` | The task's checklist, with `pending`, `in_progress`, `done` or `skipped` per item (the tick marks). |
+| `step` | `id`, `text`, `done`?, `failed`? | One thing the agent is doing or has done (`done` / `failed`). |
+| `approval` | `id`, `text` | The worker needs a yes or no (money, sending, deleting). |
+| `result` | `id`, `text` | What the task produced, in plain words. |
+| `done` | `id` | The task finished. |
+| `failed` | `id`, `error` | The task failed (or was cancelled). |
+| `stalled` | `id`, `seconds` | Still running, but nothing has happened for a while (not a stall while it waits for your yes). |
+| `resumed` | `id` | It moved again after being stalled. |
+
 ### Python interfaces
 
 Each is a small `Protocol`. Call sites say *what* they want; only the implementation knows *how*. Swap one object (or use a
@@ -217,6 +250,10 @@ fake in a test) and nothing else changes. A guard test per row fails if code rea
 | `Platform` | `platform/__init__.py` | `run`, `osascript`, `osascript_async`, `clipboard_read/write`, `audio_devices_json`, `process_rss_kb`, `find_folders`, `open_application`, `to_wav16k`, `start_playback`, `say_to_file` | `MacOS` | no other module may call `subprocess` |
 | `Memory`, `LearningStore` | `core/memory.py`, `core/learnings.py` | facts, turns, sessions, `newest_turn_id`, `clear_turns`, learnings | SQLite, one shared `Memory` | only these two files touch the database |
 | Registries | `modes/`, `actions/`, `stt/` | `@modes.register`, `@actions.register`, `backends.get` | each mode, action and backend | |
+| `Link` | `swarm/link.py` | `start`, `stop`, `send_task`, `cancel`, `approve`; `on_event`, `on_state` | `RemoteLink` (WebSocket, reconnect, own watchdog), `LocalLink` (this computer, in process) | the swarm package may not depend on the app layers |
+| `Executor` | `swarm/worker.py` | `run(task)`, `cancel(task_id)` | `AgentExecutor` in `swarm/executor.py`: the normal agent, headless | only `executor.py` touches the agent |
+| `Router` | `swarm/router.py` | `route(text, picked, online)` | rules first (named computer, both, the other one), then `llm` | rule and fallback tests |
+| `SwarmController`, `Board` | `swarm/controller.py`, `swarm/board.py` | `run`, `cancel_all`, `pick`, `approve`; `snapshot` | route, dispatch, collect; publishes the `swarm` event at a capped rate | `swarm_controller` is the only way the mode reaches the swarm |
 
 ### Swift side
 
@@ -228,6 +265,9 @@ fake in a test) and nothing else changes. A guard test per row fails if code rea
 | `VoiceInputView`, `TypingInputView` | `InputViews.swift` | The two input kinds. The typing view has no waveform, timer, voice toggle or hints |
 | `ScreenControl` | `ScreenControl.swift` | Screenshots, mouse and keys, always on a background queue |
 | `HotkeyTap` | `HotkeyTap.swift` | F9 / F10 / Esc, sent as `key` commands |
+| `SwarmBoard`, `SwarmPC` | `SwarmView.swift` | The swarm event, parsed once; every computer's state, checklist, step, result |
+| `SwarmMap`, `SwarmOrb` | `SwarmView.swift` | You in the middle, your computers around you; dashed links flow while one works; tap to pick, AUTO to let the router decide |
+| `SwarmBox` | `SwarmView.swift` | The black box: per computer, its ticks, step and result. No separate final answer |
 
 ## Pathways
 
@@ -354,6 +394,50 @@ flowchart LR
     TURN --> BACK["widget returns to the song, not idle"]
     ENDED["song ends, tab closes or you pause it"] --> OUT["music mode ends by itself"]
 ```
+
+### Swarm request
+
+```mermaid
+flowchart LR
+    KEY["F10: record, F10: send"] --> STT["one transcription<br/>(this computer)"]
+    STT --> ROUTER{"Router<br/>picked? named? both? the other one?"}
+    ROUTER -- "rules" --> ASSIGN["assignments:<br/>computer + task"]
+    ROUTER -- "3+ computers, ambiguous" --> LLM["llm.tool_calls"] --> ASSIGN
+    ASSIGN --> CTRL["SwarmController.run"]
+    CTRL --> L1["LocalLink<br/>this computer"]
+    CTRL --> L2["RemoteLink<br/>MacBook"]
+    CTRL --> L3["RemoteLink<br/>Mac mini"]
+    L2 -- "task over WebSocket" --> W2["Worker + AgentExecutor<br/>+ monitor"]
+    W2 -- "started, checklist, step, result, done,<br/>stalled, heartbeat" --> L2
+    L1 --> BOARD["Board"]
+    L2 --> BOARD
+    L3 --> BOARD
+    BOARD -- "swarm event, at most about 7 a second" --> UI["widget: map + box"]
+    UI -- "swarm_pick" --> CTRL
+    KEY2["F10 or Esc while working"] --> CANCEL["cancel_all: every computer"]
+```
+
+The controller publishes the board a few times a second no matter how many events arrive, and the widget draws it from its
+own clock, so a flood of updates, a silent computer or a lost connection cannot slow the animation. A new request replaces
+whatever was running. Owns it: `swarm/`, `modes/swarm.py`.
+
+### Swarm links and stalls
+
+```mermaid
+stateDiagram-v2
+    [*] --> connecting
+    connecting --> online: welcome received
+    connecting --> offline: refused, unreachable or wrong token
+    online --> not_responding: no heartbeat for 8 s (controller's own watchdog)
+    not_responding --> online: any message arrives
+    online --> offline: connection closed
+    not_responding --> offline: connection closed
+    offline --> connecting: retry with backoff
+```
+
+A task has its own states, reported by the worker's monitor: `working`, `stalled` (running but quiet for 30 s; waiting for your
+yes or no does not count), `waiting` (approval), `done`, `failed`. The widget shows the connection problem first, otherwise the
+work. Worker side: a controller that disconnects takes its tasks with it.
 
 ### Releases and profiles
 

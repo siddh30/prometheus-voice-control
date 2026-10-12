@@ -38,6 +38,7 @@ struct CommonControls: View {
     @ObservedObject var model: OverlayModel
     var body: some View {
         TypeButton(on: model.typing) { model.typing.toggle() }
+        if model.swarm != nil { NetworkButton(on: model.mapOpen) { model.mapOpen.toggle() } }
         NewChatButton { model.newConversation() }
         FreshButton { model.startFresh() }
     }

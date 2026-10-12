@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from voicectl.api.schema import check
+
 # Front end -> daemon. Every message is {"type": <name>, ...fields}; this table is the whole contract.
 # A field is (python type, required). Extra fields are kept (e.g. a screenshot result carries its payload).
 COMMANDS: dict[str, dict[str, tuple[type, bool]]] = {
@@ -36,17 +38,9 @@ class Command:
 def parse_command(message: dict[str, Any]) -> Command | None:
     """Validate one raw message; None means 'not a command we know', never an exception."""
     name = message.get("command") or message.get("type")
-    spec = COMMANDS.get(name) if isinstance(name, str) else None
-    if spec is None:
-        return None
     args = {k: v for k, v in message.items() if k not in ("type", "command")}
-    for key, (kind, required) in spec.items():
-        if key not in args:
-            if required:
-                return None
-            continue
-        if not isinstance(args[key], kind):
-            return None
+    if check(COMMANDS, name, args, "command") is not None:
+        return None
     if name == "input_mode" and args["mode"] not in INPUT_MODES:
         return None
     return Command(name, args)

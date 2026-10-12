@@ -53,6 +53,37 @@ func renderSnapshots(to dir: String) {
         $0.checklist = [ChecklistItem(text: "Opened https://www.linkedin.com", status: "done")]
         $0.result = "Opened https://www.linkedin.com"      // restates the checklist: must not appear twice
     }
+    func pc(_ name: String, local: Bool = false, state: String = "idle", task: String = "", checklist: [[String: Any]] = [], step: String = "",
+            result: String = "", error: String = "", detail: String = "", approval: String = "") -> [String: Any] {
+        ["name": name, "local": local, "state": state, "detail": detail, "task": task, "checklist": checklist, "step": step,
+         "result": result, "error": error, "approval": approval]
+    }
+    shot("20_swarm_working") {
+        $0.phase = .thinking; $0.mode = "swarm"; $0.transcript = "Open Gmail on the MacBook and play lofi on the mini"
+        $0.swarm = SwarmBoard(["picked": "auto", "routing": "named", "pcs": [
+            pc("Studio", local: true),
+            pc("MacBook", state: "working", task: "open gmail",
+               checklist: [["text": "Open Gmail", "status": "done"], ["text": "Check the inbox", "status": "in_progress"], ["text": "Summarise unread mail", "status": "pending"]],
+               step: "Reading the inbox"),
+            pc("Mac mini", state: "stalled", task: "play lofi", checklist: [["text": "Search YouTube for lofi", "status": "in_progress"]], step: "Searching YouTube")]])
+    }
+    shot("21_swarm_done") {
+        $0.phase = .idle; $0.mode = "swarm"; $0.transcript = "Check my calendar on both"
+        $0.swarm = SwarmBoard(["picked": "auto", "routing": "all", "pcs": [
+            pc("Studio", local: true, state: "done", task: "check my calendar", checklist: [["text": "Open Calendar", "status": "done"]], result: "Two meetings today: 10:00 standup, 15:30 review."),
+            pc("MacBook", state: "done", task: "check my calendar", checklist: [["text": "Open Calendar", "status": "done"]], result: "Same two meetings."),
+            pc("Mac mini", state: "offline", detail: "can't reach 192.168.1.30:8781")]])
+    }
+    shot("22_swarm_pick") {
+        $0.phase = .idle; $0.mode = "swarm"; $0.mapOpen = true
+        $0.swarm = SwarmBoard(["picked": "MacBook", "routing": "", "pcs": [pc("Studio", local: true), pc("MacBook"), pc("Mac mini"), pc("Air")]])
+    }
+    shot("23_swarm_not_responding") {
+        $0.phase = .thinking; $0.mode = "swarm"; $0.transcript = "Search the web on the mini"
+        $0.swarm = SwarmBoard(["picked": "auto", "routing": "named", "pcs": [
+            pc("Studio", local: true), pc("MacBook"),
+            pc("Mac mini", state: "not_responding", task: "search the web", checklist: [["text": "Search the web", "status": "in_progress"]], detail: "no word from that computer")]])
+    }
     shot("11_music") { $0.phase = .music; $0.mode = "prometheus"; $0.musicTitle = "Queen – Bohemian Rhapsody (Official Video Remastered)" }
     shot("13_long_speaking") { $0.phase = .thinking; $0.mode = "prometheus"; $0.speaking = true
         $0.transcript = String(repeating: "Here is a long answer that keeps going so the caption has to grow and then scroll to follow the newest words. ", count: 2) }

@@ -18,6 +18,10 @@ struct OverlayView: View {
 
             if model.usesMic { VoiceInputView(model: model) } else { TypingInputView(model: model) }
 
+            if let board = model.swarm, model.swarmVisible {
+                SwarmMap(board: board) { model.pickPC($0) }.transition(.opacity)
+            }
+
             if !model.transcript.isEmpty {
                 CaptionView(text: "“\(model.transcript)”").transition(.opacity)
             }
@@ -39,6 +43,10 @@ struct OverlayView: View {
                 Text(model.notice)
                     .font(.system(size: 11, design: .rounded)).foregroundStyle(.orange.opacity(0.9))
                     .multilineTextAlignment(.center).lineLimit(3).frame(maxWidth: 380)
+            }
+
+            if let board = model.swarm, model.swarmBoxVisible {
+                SwarmBox(board: board).transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
             if model.expanded { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }

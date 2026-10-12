@@ -63,6 +63,9 @@ final class OverlayModel: ObservableObject {
     @Published var listenStart: Date? = nil
     @Published var speaking = false
     @Published var checklist: [ChecklistItem] = []
+    @Published var swarm: SwarmBoard? = nil   // the swarm app only: every computer's state (the daemon's `swarm` event)
+    @Published var mapOpen = false            // the computers map pinned open, so you can pick one before talking
+    @Published var swarmCleared = false       // the card shrank: hide last request's box until something new happens
     @Published var typing = false { didSet { if typing != oldValue { sendInputMode() } } }   // the type box is open = typing mode: voice is ignored
     @Published var voiceOn = true             // speak replies aloud, or show them as text only (e.g. on speakers)
     @Published var musicTitle = ""
@@ -76,7 +79,7 @@ final class OverlayModel: ObservableObject {
     func send(_ command: Command) { if let json = command.json { send?(json) } }
 
     /// The hands-free conversation modes (they keep listening, show replies, can be talked over).
-    var conversational: Bool { mode == "assistant" || mode == "conversation" || mode == "prometheus" }
+    var conversational: Bool { mode == "assistant" || mode == "conversation" || mode == "prometheus" || mode == "swarm" }
 
     /// What the pill says. After a run finishes it names the outcome instead of dropping straight to IDLE.
     var label: String {
@@ -90,12 +93,24 @@ final class OverlayModel: ObservableObject {
         switch mode {
         case "dictate": return "TYPED"
         case "agent": return "RESULT"
-        case "assistant", "conversation", "prometheus": return "ENDED"
+        case "assistant", "conversation", "prometheus", "swarm": return "ENDED"
         default: return "DONE"
         }
     }
 
-    var isActive: Bool { typing || phase == .music || needsPermission || speaking || jobActive || !checklist.isEmpty || phase != .idle || !transcript.isEmpty || !notice.isEmpty || !steps.isEmpty || !result.isEmpty }
+    /// The computers map shows while you are using the swarm (and can be pinned open to pick a computer first).
+    var swarmVisible: Bool {
+        guard let b = swarm else { return false }
+        return mapOpen || b.anyBusy || (!swarmCleared && b.anyInBox) || (conversational && phase != .idle && mode == "swarm")
+    }
+    var swarmBoxVisible: Bool { (swarm?.anyBusy ?? false) || (!swarmCleared && (swarm?.anyInBox ?? false)) }
+
+    func pickPC(_ name: String) {
+        send(.swarmPick(name))
+        if var b = swarm { b.picked = name; swarm = b }                    // optimistic; the daemon confirms with the next `swarm` event
+    }
+
+    var isActive: Bool { swarmVisible || typing || phase == .music || needsPermission || speaking || jobActive || !checklist.isEmpty || phase != .idle || !transcript.isEmpty || !notice.isEmpty || !steps.isEmpty || !result.isEmpty }
     var expanded: Bool {
         let panelContent = !plan.isEmpty || !steps.isEmpty || !result.isEmpty || approval != nil
         return (mode == "agent" || conversational) && (panelContent || !checklist.isEmpty)
@@ -132,12 +147,12 @@ final class OverlayModel: ObservableObject {
             switch mode {
             case "agent": return .agent
             case "action": return .action
-            case "assistant", "conversation", "prometheus": return .convo
+            case "assistant", "conversation", "prometheus", "swarm": return .convo
             default: return .listening
             }
         case .transcribing: return .transcribing
         case .handling, .thinking, .acting, .awaiting_approval:
-            if mode == "prometheus" { return phase == .acting || !checklist.isEmpty ? .agent : .convo }   // violet while doing, teal while talking
+            if mode == "prometheus" || mode == "swarm" { return phase == .acting || (swarm?.anyBusy ?? false) || !checklist.isEmpty ? .agent : .convo }   // violet while doing, teal while talking
             switch route ?? mode {
             case "action": return .action
             case "chat", "assistant", "conversation": return .convo
@@ -198,6 +213,11 @@ final class OverlayModel: ObservableObject {
         case "job":
             jobActive = (data["active"] as? Bool) ?? false
             jobText = (data["text"] as? String) ?? jobText
+        case "swarm":
+            if let b = SwarmBoard(data) {
+                if b != swarm { swarm = b }
+                if b.anyBusy { swarmCleared = false }                       // new work: show it again
+            }
         case "voice":
             voiceOn = (data["on"] as? Bool) ?? true
         case "music":
@@ -305,11 +325,12 @@ final class OverlayModel: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             self.transcript = ""; self.notice = ""; self.plan = []; self.steps = []; self.result = ""; self.checklist = []
+            self.swarmCleared = true; self.mapOpen = false                  // the swarm card shrinks with everything else
             self.phase = .idle
         }
     }
 
     private var canShrink: Bool {
-        (phase == .idle || phase == .done) && approval == nil && !speaking && !jobActive
+        (phase == .idle || phase == .done) && approval == nil && !speaking && !jobActive && !(swarm?.anyBusy ?? false)
     }
 }

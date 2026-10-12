@@ -5,6 +5,7 @@ import socket
 
 from voicectl.core.config import Config
 from voicectl.core.events import EventBus
+from voicectl.core.memory import Memory
 from voicectl.swarm.controller import SwarmController
 from voicectl.swarm.executor import AgentExecutor
 from voicectl.swarm.link import Link, LocalLink, RemoteLink
@@ -18,7 +19,7 @@ class SwarmConfigError(RuntimeError):
     pass
 
 
-def build_controller(config: Config, bus: EventBus, token: str, executor=None) -> SwarmController:
+def build_controller(config: Config, bus: EventBus, token: str, memory: Memory, executor=None) -> SwarmController:
     """The swarm as the settings describe it: this computer (always, in-process) plus every computer under `swarm.pcs`.
 
         swarm:
@@ -29,7 +30,7 @@ def build_controller(config: Config, bus: EventBus, token: str, executor=None) -
     """
     me = config.get("swarm.name") or socket.gethostname().split(".")[0]
     pcs = [PC(me, tuple(config.get("swarm.aliases", []) or []), local=True)]
-    links: dict[str, Link] = {me: LocalLink(me, Worker(me, executor or AgentExecutor(config), stall_after_s=config.get("swarm.stall_after_s", 30)))}
+    links: dict[str, Link] = {me: LocalLink(me, Worker(me, executor or AgentExecutor(config, memory), stall_after_s=config.get("swarm.stall_after_s", 30)))}
     others = config.get("swarm.pcs", []) or []
     if others and not token:
         raise SwarmConfigError("SWARM_TOKEN is missing in .env, so I can't connect to your other computers.")

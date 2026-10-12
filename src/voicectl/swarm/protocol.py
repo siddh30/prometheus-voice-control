@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from voicectl.api.schema import Table, check
+
 PROTOCOL_VERSION = 1
 
 # Controller -> worker. Every message is {"type": <name>, ...fields}. A field is (python type(s), required).
-COMMANDS: dict[str, dict[str, tuple[Any, bool]]] = {
+COMMANDS: Table = {
     "hello":    {"token": (str, True), "controller": (str, False), "version": (int, False)},   # first message on a connection
     "task":     {"id": (str, True), "text": (str, True), "context": (str, False)},
     "cancel":   {"id": (str, True)},
@@ -14,7 +16,7 @@ COMMANDS: dict[str, dict[str, tuple[Any, bool]]] = {
 }
 
 # Worker -> controller.
-EVENTS: dict[str, dict[str, tuple[Any, bool]]] = {
+EVENTS: Table = {
     "welcome":   {"name": (str, True), "version": (int, True)},
     "rejected":  {"reason": (str, True)},                                    # bad token or protocol; the connection is closed
     "heartbeat": {},                                                         # every few seconds: this worker is alive
@@ -30,18 +32,6 @@ EVENTS: dict[str, dict[str, tuple[Any, bool]]] = {
 }
 
 
-def validate(table: dict[str, dict[str, tuple[Any, bool]]], message: dict[str, Any]) -> str | None:
+def validate(table: Table, message: dict[str, Any]) -> str | None:
     """None if the message honours the table, else a one-line reason. Used on both ends and in tests."""
-    name = message.get("type")
-    spec = table.get(name) if isinstance(name, str) else None
-    if spec is None:
-        return f"unknown message type {name!r}"
-    for key, (kind, required) in spec.items():
-        if key not in message:
-            if required:
-                return f"{name}: missing {key!r}"
-        elif message[key] is None and not required:
-            continue
-        elif not isinstance(message[key], kind) or (kind is str and not isinstance(message[key], str)):
-            return f"{name}: {key!r} has the wrong type"
-    return None
+    return check(table, message.get("type"), message, "message type")

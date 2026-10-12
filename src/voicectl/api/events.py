@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from voicectl.api.schema import check
+
 # Daemon -> front end. Every message is {"type": <name>, "data": {...}}; this table is the whole contract.
 # A field is (python type(s), required); an optional field may also be None. The widget ignores fields it doesn't know, so adding one is always safe.
 EVENTS: dict[str, dict[str, tuple[Any, bool]]] = {
@@ -33,15 +35,4 @@ EVENTS: dict[str, dict[str, tuple[Any, bool]]] = {
 
 def validate_event(type: str, data: dict[str, Any]) -> str | None:
     """None if the event honours the contract, else a one-line reason. Used by tests and by the bridge's log."""
-    spec = EVENTS.get(type)
-    if spec is None:
-        return f"unknown event type {type!r}"
-    for key, (kind, required) in spec.items():
-        if key not in data:
-            if required:
-                return f"{type}: missing {key!r}"
-        elif data[key] is None and not required:
-            continue                                                           # an optional field may be left empty
-        elif not isinstance(data[key], kind):
-            return f"{type}: {key!r} has the wrong type"
-    return None
+    return check(EVENTS, type, data, "event type")

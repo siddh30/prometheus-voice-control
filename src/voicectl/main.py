@@ -106,11 +106,11 @@ async def run() -> None:
     if swarm_on:                                             # the swarm app: this computer plus the others in config.local.yaml
         from voicectl.swarm.settings import SwarmConfigError, build_controller
         try:
-            controller = build_controller(config, bus, os.environ.get("SWARM_TOKEN", ""))
+            controller = build_controller(config, bus, os.environ.get("SWARM_TOKEN", ""), shared_memory(ctx.shared))
         except SwarmConfigError as e:
             log.error("%s Running on this computer only.", e)
             bus.publish("error", message=f"{e} Running on this computer only.")
-            controller = build_controller(type(config)({**config.raw, "swarm": {**(config.get("swarm") or {}), "pcs": []}}), bus, "")
+            controller = build_controller(type(config)({**config.raw, "swarm": {**(config.get("swarm") or {}), "pcs": []}}), bus, "", shared_memory(ctx.shared))
         ctx.shared["swarm_controller"] = controller
         control.on("swarm_pick", lambda cmd: controller.pick(cmd["pc"]))
         control.on("approval", lambda cmd: asyncio.get_running_loop().create_task(controller.approve(cmd["approved"])))

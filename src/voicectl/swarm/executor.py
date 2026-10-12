@@ -5,7 +5,7 @@ import logging
 
 from voicectl.agents.complexity import heuristic, hint_block
 from voicectl.agents.runner import AgentRunner, Finished
-from voicectl.core.config import DATA_DIR, Config
+from voicectl.core.config import Config
 from voicectl.core.events import EventBus
 from voicectl.core.memory import Memory
 from voicectl.swarm.worker import TaskContext
@@ -17,10 +17,10 @@ class AgentExecutor:
     """Runs the normal Prometheus agent for a swarm task, headless: its own private event bus, no voice, no mic, no widget.
     The agent is unchanged; this only translates what it publishes (checklist, steps, approvals) into worker events."""
 
-    def __init__(self, config: Config, memory: Memory | None = None) -> None:
+    def __init__(self, config: Config, memory: Memory) -> None:
         self.config = config
         self.bus = EventBus()
-        self.runner = AgentRunner(config, self.bus, memory or Memory(DATA_DIR / "swarm_worker.db"))   # screen=None: no app to look through
+        self.runner = AgentRunner(config, self.bus, memory)       # the daemon's one shared Memory; screen=None: no app to look through
         self.runner.mode_name = "swarm"
         self._lock = asyncio.Lock()               # one agent session: a second task waits for the first (the controller replaces, not stacks)
 
