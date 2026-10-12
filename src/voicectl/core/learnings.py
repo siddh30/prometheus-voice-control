@@ -5,10 +5,13 @@ store (`learnings.db`), apart from the conversation memory. Why apart: it is kno
 user or any one conversation, so it survives "start fresh", can be inspected or deleted on its own, and can grow without touching
 the conversation database.
 
-Two tables: `actions` (every browser/mouse action and whether it worked) and `learnings` (the distilled lessons). A pattern that
-keeps failing, one that keeps working, or a failure followed by a different method that worked, is promoted to a lesson."""
+Three tables: `actions` (every browser/mouse action and whether it worked), `learnings` (the distilled lessons) and `routes` (a whole
+task: its goal, what failed, and the route that worked instead). A pattern that keeps failing, one that keeps working, or a failure
+followed by a different method that worked, is promoted to a lesson; a task that hit failures and still succeeded becomes a route, which
+the next similar task is shown before it starts (in the same conversation or a later one)."""
 
 import difflib
+import json
 import re
 import sqlite3
 import time
@@ -26,6 +29,9 @@ class LearningStore:
                 hits INTEGER DEFAULT 1, created REAL, last_used REAL);
             CREATE TABLE IF NOT EXISTS actions(
                 id INTEGER PRIMARY KEY, ts REAL, host TEXT, tool TEXT, key TEXT, ok INTEGER);
+            CREATE TABLE IF NOT EXISTS routes(
+                id INTEGER PRIMARY KEY, host TEXT, goal TEXT, words TEXT, failed TEXT, worked TEXT,
+                hits INTEGER DEFAULT 1, created REAL, last_used REAL);
         """)
         self.db.commit()
 
@@ -35,7 +41,7 @@ class LearningStore:
         return cls(Path(memory.path).with_name("learnings.db"))
 
     def clear(self) -> None:
-        self.db.executescript("DELETE FROM learnings; DELETE FROM actions;")
+        self.db.executescript("DELETE FROM learnings; DELETE FROM actions; DELETE FROM routes;")
         self.db.commit()
 
     # --- learnings: lessons from experience ("on LinkedIn, filter posts via the search URL, not the filter button") ---
@@ -87,6 +93,86 @@ class LearningStore:
         v = self.VERB
         return self.add_learning(host, f"On {host}: {v.get(failed[0], failed[0])} '{failed[1]}' failed, but {v.get(worked[0], worked[0])} '{worked[1]}' worked.", "tip")
 
+    # --- routes: a whole task that hit failures and still got there ("to find posts on LinkedIn: the filter failed, the search URL worked") ---
+    GOAL_STOP = {"the", "and", "for", "with", "that", "this", "can", "you", "please", "open", "show", "get", "find", "let", "now", "just", "then",
+                 "from", "into", "have", "has", "was", "are", "not", "but", "all", "any", "out"}
+
+    @classmethod
+    def _goal_words(cls, text: str) -> set[str]:
+        return {w for w in re.findall(r"[a-z0-9]{3,}", text.lower())} - cls.GOAL_STOP
+
+    @staticmethod
+    def _clean_host(host: str) -> str:
+        return (host or "").lower().removeprefix("www.")
+
+    def record_route(self, host: str, goal: str, failed: list[tuple[str, str]], worked: list[tuple[str, str]]) -> bool:
+        """A task whose first method(s) failed and which then succeeded by another route. A similar goal on the same site strengthens the
+        existing route (and keeps the shortest route that worked); a new one is added. True if it was new."""
+        host, goal = self._clean_host(host), re.sub(r"\s+", " ", goal.strip())[:140]
+        words = self._goal_words(goal)
+        if not host or not failed or not worked or len(words) < 2:
+            return False
+        norm = lambda step: (step[0], re.sub(r"\d+", "#", (step[1] or "").lower().strip())[:60])    # the same spelling the action log uses
+        failed = list(dict.fromkeys(norm(s) for s in failed))[:4]
+        worked = [norm(s) for s in worked]
+        worked = [s for i, s in enumerate(worked) if i == 0 or s != worked[i - 1]][:8]                 # no stuttering repeats
+        now = time.time()
+        for rid, rwords, rfailed, rworked in self.db.execute("SELECT id, words, failed, worked FROM routes WHERE host = ?", (host,)).fetchall():
+            old = set(rwords.split())
+            if len(words & old) / len(words | old) >= 0.6:
+                merged = list(dict.fromkeys([*(tuple(x) for x in json.loads(rfailed)), *failed]))[:4]
+                best = worked if len(worked) <= len(json.loads(rworked)) else json.loads(rworked)
+                self.db.execute("UPDATE routes SET hits = hits + 1, last_used = ?, failed = ?, worked = ? WHERE id = ?",
+                                (now, json.dumps(merged), json.dumps(best), rid))
+                self.db.commit()
+                return False
+        self.db.execute("INSERT INTO routes(host, goal, words, failed, worked, hits, created, last_used) VALUES(?,?,?,?,?,1,?,?)",
+                        (host, goal, " ".join(sorted(words)), json.dumps(failed), json.dumps(worked), now, now))
+        self.db.commit()
+        return True
+
+    def _describe(self, steps: list[tuple[str, str]], limit: int) -> str:
+        return ", then ".join(f"{self.VERB.get(t, t)} '{k}'" for t, k in steps[:limit])
+
+    def relevant_routes(self, text: str, host: str = "", n: int = 2) -> list[str]:
+        """The saved routes that fit this task (similar goal; the same site counts for more), as short instructions. Marks them used."""
+        words, host = self._goal_words(text), self._clean_host(host)
+        if not words:
+            return []
+        scored = []
+        for rid, rhost, goal, rwords, failed, worked, hits in self.db.execute("SELECT id, host, goal, words, failed, worked, hits FROM routes").fetchall():
+            old = set(rwords.split())
+            shared = len(words & old)
+            jaccard = shared / len(words | old)
+            same_site = bool(host) and (host == rhost or rhost in text.lower() or rhost.split(".")[0] in text.lower())
+            if (shared >= 2 and jaccard >= 0.34) or (same_site and shared >= 1 and jaccard >= 0.2):
+                scored.append((jaccard + (0.3 if same_site else 0) + min(hits, 5) * 0.03, rid, rhost, goal, json.loads(failed), json.loads(worked), hits))
+        scored.sort(reverse=True)
+        out, used = [], []
+        for _, rid, rhost, goal, failed, worked, hits in scored[:n]:
+            out.append(f"On {rhost}, for a task like \"{goal}\": {self._describe(failed, 3)} failed. What worked instead: {self._describe(worked, 6)}"
+                       f"{f' (worked {hits} times)' if hits > 1 else ''}.")
+            used.append((time.time(), rid))
+        if used:
+            self.db.executemany("UPDATE routes SET last_used = ?, hits = hits + 1 WHERE id = ?", used)
+            self.db.commit()
+        return out
+
+    def routes(self, limit: int = 30) -> list[tuple[int, str, str]]:
+        return self.db.execute("SELECT id, host, goal FROM routes ORDER BY hits DESC, last_used DESC LIMIT ?", (limit,)).fetchall()
+
+    def prune_routes(self, max_n: int) -> int:
+        """Keep the most useful `max_n` routes (used often, used recently)."""
+        rows = self.db.execute("SELECT id, hits, last_used FROM routes").fetchall()
+        if len(rows) <= max_n:
+            return 0
+        now = time.time()
+        ranked = sorted(rows, key=lambda r: r[1] * 0.5 ** ((now - r[2]) / (30 * 86400)))
+        drop = ranked[: len(rows) - max_n]
+        self.db.executemany("DELETE FROM routes WHERE id = ?", [(r[0],) for r in drop])
+        self.db.commit()
+        return len(drop)
+
     def prune_actions(self, older_than_s: float = 30 * 86400) -> int:
         cur = self.db.execute("DELETE FROM actions WHERE ts < ?", (time.time() - older_than_s,))
         self.db.commit()
@@ -118,6 +204,9 @@ class LearningStore:
             cur = self.db.execute("DELETE FROM learnings WHERE id = ?", (int(q),))
         else:
             cur = self.db.execute("DELETE FROM learnings WHERE lower(lesson) LIKE ? OR lower(topic) LIKE ?", (f"%{q}%", f"%{q}%"))
+            routes = self.db.execute("DELETE FROM routes WHERE lower(goal) LIKE ? OR lower(host) LIKE ?", (f"%{q}%", f"%{q}%"))
+            self.db.commit()
+            return cur.rowcount + routes.rowcount
         self.db.commit()
         return cur.rowcount
 
