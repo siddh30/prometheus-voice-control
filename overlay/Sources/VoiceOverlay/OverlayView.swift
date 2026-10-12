@@ -9,8 +9,36 @@ struct OverlayView: View {
     @ObservedObject var model: OverlayModel
     var onSize: (CGSize) -> Void = { _ in }
 
+    static let windowHeight: CGFloat = 640          // the panel's fixed size (main.swift); the card must fit inside it
+
+    @State private var cardHeight: CGFloat = 0
+
+    /// Short cards sit at the bottom of the window, as always (and the empty window stays click-through). A card taller than the window
+    /// scrolls, with a scroll bar, starting at its newest end.
     var body: some View {
-        VStack(spacing: 10) {
+        let measured = card.fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
+        if snapshotFlat || cardHeight <= Self.windowHeight {
+            measured.frame(width: 480, height: Self.windowHeight, alignment: .bottom)
+                .onPreferenceChange(HeightKey.self) { cardHeight = $0 }
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: true) {
+                    measured.frame(width: 480).id("card")
+                }
+                .frame(width: 480, height: Self.windowHeight)
+                .onAppear { proxy.scrollTo("card", anchor: .bottom) }
+                .onChange(of: model.rateOpen) { _ in proxy.scrollTo("card", anchor: .bottom) }       // the note box opens at the bottom: keep it in view
+                .onChange(of: model.result) { _ in proxy.scrollTo("card", anchor: .bottom) }
+                .onChange(of: model.checklist.count) { _ in proxy.scrollTo("card", anchor: .bottom) }
+                .onPreferenceChange(HeightKey.self) { cardHeight = $0 }
+            }
+        }
+    }
+
+    /// The card at its natural height (snapshots measure this to prove it fits the window).
+    var card: some View {
+        VStack(spacing: 12) {
             if model.route == "agent" || model.mode == "agent", let s = model.session, model.isActive {
                 Text(s).font(.system(size: 9, weight: .medium, design: .rounded)).tracking(1.2)
                     .foregroundStyle(.white.opacity(0.5))
@@ -41,11 +69,11 @@ struct OverlayView: View {
                     .multilineTextAlignment(.center).lineLimit(3).frame(maxWidth: 380)
             }
 
-            if model.expanded { CappedScroll(maxHeight: 200) { AgentPanel(model: model) }.transition(.opacity.combined(with: .move(edge: .bottom))) }
+            if model.expanded { CappedScroll(maxHeight: 320) { AgentPanel(model: model) }.transition(.opacity.combined(with: .move(edge: .bottom))) }
 
             if model.canRate { FeedbackBar(model: model).transition(.opacity) }
         }
-        .padding(.horizontal, 22).padding(.vertical, model.isActive ? 16 : 10)
+        .padding(.horizontal, 22).padding(.vertical, model.isActive ? 20 : 10)
         .frame(width: model.isActive ? 440 : nil)
         .fixedSize(horizontal: !model.isActive, vertical: false)       // idle pill hugs its text, whatever the label
         .background(
@@ -58,7 +86,6 @@ struct OverlayView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: model.expanded)
         .animation(.easeInOut(duration: 0.25), value: model.transcript)
         .padding(20)
-        .frame(width: 480, height: 640, alignment: .bottom)
     }
 }
 
@@ -187,18 +214,18 @@ struct CaptionView: View {
     }
     var body: some View {
         if compact && text.count > 90 && snapshotFlat {
-            label.frame(width: 380, height: 54, alignment: .bottom).clipped()
+            label.frame(width: 380, height: 66, alignment: .bottom).clipped()
         } else if compact && text.count > 90 {
             ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) { label.id("end") }
-                    .frame(width: 380, height: 54)
+                ScrollView(.vertical, showsIndicators: true) { label.id("end") }
+                    .frame(width: 380, height: 66)
                     .onChange(of: text) { _ in proxy.scrollTo("end", anchor: .bottom) }
             }
         } else if text.count < 330 {
             label
         } else {
             ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) { label.id("end") }
+                ScrollView(.vertical, showsIndicators: true) { label.id("end") }
                     .frame(width: 380, height: 230)
                     .onChange(of: text) { _ in proxy.scrollTo("end", anchor: .bottom) }
             }
@@ -308,7 +335,7 @@ struct CappedScroll<Content: View>: View {
         } else { scrolling }
     }
     private var scrolling: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        ScrollView(.vertical, showsIndicators: true) {
             content().background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
         }
         .frame(height: height == 0 ? maxHeight : min(height, maxHeight))
