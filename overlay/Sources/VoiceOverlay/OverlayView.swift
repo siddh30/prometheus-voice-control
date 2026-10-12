@@ -19,7 +19,7 @@ struct OverlayView: View {
             if model.usesMic { VoiceInputView(model: model) } else { TypingInputView(model: model) }
 
             if !model.transcript.isEmpty {
-                CaptionView(text: "“\(model.transcript)”").transition(.opacity)
+                CaptionView(text: "“\(model.transcript)”", compact: model.expanded).transition(.opacity)
             }
 
             if model.usesMic { VoiceHint(model: model) }
@@ -41,7 +41,9 @@ struct OverlayView: View {
                     .multilineTextAlignment(.center).lineLimit(3).frame(maxWidth: 380)
             }
 
-            if model.expanded { AgentPanel(model: model).transition(.opacity.combined(with: .move(edge: .bottom))) }
+            if model.expanded { CappedScroll(maxHeight: 200) { AgentPanel(model: model) }.transition(.opacity.combined(with: .move(edge: .bottom))) }
+
+            if model.canRate { FeedbackBar(model: model).transition(.opacity) }
         }
         .padding(.horizontal, 22).padding(.vertical, model.isActive ? 16 : 10)
         .frame(width: model.isActive ? 440 : nil)
@@ -174,6 +176,7 @@ struct VoiceToggle: View {
 /// What you said / what Prometheus is saying. Grows with the text; very long text scrolls and follows the newest words.
 struct CaptionView: View {
     let text: String
+    var compact = false                       // other things share the card: keep to about three lines and follow the newest words
     private var label: some View {
         Text(text)
             .font(.system(size: 13, weight: .regular, design: .rounded))
@@ -183,7 +186,15 @@ struct CaptionView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
     var body: some View {
-        if text.count < 330 {
+        if compact && text.count > 90 && snapshotFlat {
+            label.frame(width: 380, height: 54, alignment: .bottom).clipped()
+        } else if compact && text.count > 90 {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) { label.id("end") }
+                    .frame(width: 380, height: 54)
+                    .onChange(of: text) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            }
+        } else if text.count < 330 {
             label
         } else {
             ScrollViewReader { proxy in
@@ -274,5 +285,76 @@ struct NewChatButton: View {
             .contentShape(Circle())
             .onTapGesture(perform: action)
             .help("New conversation: clean context, keeps what I know about you")
+    }
+}
+
+
+/// ImageRenderer (snapshots) cannot draw scroll views, so snapshots show the same boxes flat and clipped to the same heights.
+nonisolated(unsafe) var snapshotFlat = false
+
+struct HeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// Sizes to its content up to `maxHeight`, then scrolls: a long box can never squeeze the rest of the card or cut its text short.
+struct CappedScroll<Content: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder var content: () -> Content
+    @State private var height: CGFloat = 0
+    var body: some View {
+        if snapshotFlat {
+            content().frame(maxHeight: maxHeight, alignment: .top).clipped()
+        } else { scrolling }
+    }
+    private var scrolling: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            content().background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
+        }
+        .frame(height: height == 0 ? maxHeight : min(height, maxHeight))
+        .onPreferenceChange(HeightKey.self) { height = $0 }
+    }
+}
+
+
+/// Thumbs up / down on the run on screen, with an optional note when it went badly. Every mode: what you rate here is what later runs learn from.
+struct FeedbackBar: View {
+    @ObservedObject var model: OverlayModel
+    @State private var note = ""
+    @FocusState private var focused: Bool
+
+    private func thumb(_ name: String, _ value: String, _ tint: Color) -> some View {
+        let chosen = model.rating == value
+        return Image(systemName: chosen ? name + ".fill" : name)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(chosen ? tint : Color.white.opacity(0.6))
+            .frame(width: 26, height: 22)
+            .background(Capsule().fill(chosen ? tint.opacity(0.18) : Color.white.opacity(0.08)))
+            .contentShape(Capsule())
+            .onTapGesture { model.rate(value) }
+            .help(value == "up" ? "That went well: do it this way again" : "That went badly: tell me what to do differently")
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Text(model.rating == nil ? "HOW DID THAT GO?" : (model.ratingSaved == false ? "COULDN'T SAVE THAT" : (model.rateOpen ? "WHAT WENT WRONG?" : "THANKS, I'LL REMEMBER")))
+                    .font(.system(size: 8, weight: .bold, design: .rounded)).tracking(1.2).foregroundStyle(.white.opacity(0.45))
+                thumb("hand.thumbsup", "up", .green)
+                thumb("hand.thumbsdown", "down", .orange)
+            }
+            if model.rateOpen {
+                HStack(spacing: 8) {
+                    TextField("Optional: what should it do differently?", text: $note)
+                        .textFieldStyle(.plain).font(.system(size: 12, design: .rounded)).foregroundStyle(.white)
+                        .focused($focused).onSubmit { model.sendNote(note); note = "" }
+                        .onExitCommand { model.sendNote(""); note = "" }
+                    PillButton(title: note.isEmpty ? "Skip" : "Send", fill: .white.opacity(0.14), fg: .white) { model.sendNote(note); note = "" }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.10)))
+                .onAppear { DispatchQueue.main.async { focused = true } }
+            }
+        }
     }
 }

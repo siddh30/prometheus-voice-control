@@ -4,6 +4,7 @@ import AppKit
 /// `VoiceOverlay --snapshot <dir>` renders each state to a PNG for design review (no screen-recording permission needed).
 @MainActor
 func renderSnapshots(to dir: String) {
+    snapshotFlat = true
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     func shot(_ name: String, _ setup: (OverlayModel) -> Void) {
         let m = OverlayModel()
@@ -52,6 +53,13 @@ func renderSnapshots(to dir: String) {
         $0.transcript = "Can you open linkedin"
         $0.checklist = [ChecklistItem(text: "Opened https://www.linkedin.com", status: "done")]
         $0.result = "Opened https://www.linkedin.com"      // restates the checklist: must not appear twice
+    }
+    shot("25_long_rated") {                                        // a long quote and a finished run: it must fit, scroll, and offer thumbs
+        $0.phase = .idle; $0.mode = "prometheus"
+        $0.transcript = "Okay, now check my profile and see what my profile looks like and based on that, open another LinkedIn tab which can tell me the best jobs for me. Also you may want to open another tab which will also tell me all posts regarding any positions for my particular profile."
+        $0.checklist = [ChecklistItem(text: "Open new LinkedIn tab", status: "done"), ChecklistItem(text: "Search posts for VP AI/ML job openings", status: "done"), ChecklistItem(text: "Read and surface the best post results", status: "done")]
+        $0.result = "Your profile looks great: VP, Applied AI/ML Lead in the New York City area with 1,766 followers. The posts tab is open and already showing great results."
+        $0.rating = "down"; $0.rateOpen = true
     }
     shot("11_music") { $0.phase = .music; $0.mode = "prometheus"; $0.musicTitle = "Queen – Bohemian Rhapsody (Official Video Remastered)" }
     shot("13_long_speaking") { $0.phase = .thinking; $0.mode = "prometheus"; $0.speaking = true

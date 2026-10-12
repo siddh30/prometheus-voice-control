@@ -122,3 +122,16 @@ async def test_nothing_is_saved_when_nothing_failed_or_the_task_never_got_there(
     await run(stuck, GOAL)
     assert stuck.learnings.routes() == []                                           # it failed and never recovered: no route...
     assert stuck._dead_ends                                                         # ...but the failure is remembered for the next turns
+
+
+async def test_a_rated_run_is_shown_to_the_next_similar_request_and_not_twice_when_the_swarm_already_sent_it(tmp_path):
+    c = Scripted(fail=False, then_ok=False)
+    r = make_runner(tmp_path, c)
+    r.learnings.record_outcome("show me recent posts about product management", "down", note="it picked old posts")
+    await run(r, "show me recent posts about product management")
+    assert "<PastRuns>" in c.prompts[0] and "it picked old posts" in c.prompts[0]
+    c2 = Scripted(fail=False, then_ok=False)
+    r2 = make_runner(tmp_path, c2)
+    ctx = "<PastRuns>\n- already here\n</PastRuns>"
+    [ev async for ev in r2.stream_turn("show me recent posts about product management", ctx, complexity="multi")]
+    assert c2.prompts[0].count("<PastRuns>") == 1                                   # the swarm's copy is used; no second one is added

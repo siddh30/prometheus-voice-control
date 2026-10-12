@@ -166,6 +166,7 @@ widget builds commands only through `Command` in `Protocol.swift`, and a test fa
 | `maintenance` | none | Tidy memory now. |
 | `key` | `name`, `down` | A hotkey seen by the app (F9 / F10 / Esc). The app owns the macOS permissions. |
 | `approval` | `approved` | The answer to an approval question (Approve / Deny buttons). |
+| `feedback` | `rating`, `note`? | Thumbs `up` / `down` on the latest run, with an optional note. Saved, and later runs learn from it (every mode). |
 | `input_result` | `id` | The app's answer to an `input_request`: a screenshot, or a click / key press done. |
 
 ### Daemon to front end: events
@@ -197,6 +198,7 @@ widget handles. (`?` marks an optional field, which may also be empty.)
 | `cost` | `usd`, `turns` | Cost in dollars and the number of agent turns of the last run. |
 | `input_request` | `id`, `op` | The agent asks the app to look at or act on the screen. |
 | `paste` | `text` | Dictation text for the app to paste at the cursor. |
+| `feedback` | `rating`, `saved` | Your thumbs were saved (or could not be). |
 
 ### Python interfaces
 
@@ -363,6 +365,23 @@ flowchart LR
     APPB --> CUR["current link"]
     CUR -. "roll back: re-point the link" .-> OLD["older snapshot"]
 ```
+
+### Thumbs up / down: learning what works
+
+Every mode shows two thumbs when a run has finished. Thumbs up is saved at once; thumbs down opens a note box ("what went wrong?") that can be skipped.
+The daemon already follows the run through the same events the widget gets, so a rating is stored with the request, the steps, the result.
+
+```mermaid
+flowchart LR
+    UI["widget: thumbs + note"] -- "feedback" --> CTRL["Control"]
+    CTRL --> LOG["FeedbackLog<br/>feedback.jsonl: the whole run + rating"]
+    LOG --> STORE["LearningStore.outcomes<br/>goal, rating, note, how"]
+    LOG -- "feedback event: saved" --> UI
+    STORE -- "similar request: PastRuns" --> AGENT["agent prompt"]
+```
+
+A similar goal rated the same way strengthens the old entry; rated the other way, the newest verdict replaces it. A later request that looks like a rated one
+gets `<PastRuns>`: where you were happy, do it that way again; where you were not, do not repeat it and try another approach. Owns it: `core/feedback.py`, `core/learnings.py` (outcomes).
 
 ## A Prometheus turn
 

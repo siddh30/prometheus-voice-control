@@ -27,6 +27,7 @@ EVENTS: dict[str, dict[str, tuple[Any, bool]]] = {
     "cost":        {"usd": ((int, float), True), "turns": (int, True)},
     "input_request": {"id": (str, True), "op": (str, True)},                   # the agent asks the app to look at / act on the screen
     "paste":       {"text": (str, True)},
+    "feedback":    {"rating": (str, True), "saved": (bool, True)},             # your thumbs were saved (or could not be)
 }
 
 

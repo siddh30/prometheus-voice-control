@@ -14,10 +14,12 @@ COMMANDS: dict[str, dict[str, tuple[type, bool]]] = {
     "maintenance":  {},                                          # tidy memory now
     "key":          {"name": (str, True), "down": (bool, True)}, # a hotkey seen by the app (it owns the macOS permissions)
     "approval":     {"approved": (bool, True)},                  # answer to an approval request
+    "feedback":     {"rating": (str, True), "note": (str, False)},  # thumbs up / down on the latest run, with an optional note
     "input_result": {"id": (str, True)},                         # the app's answer to an input_request (screenshot, click, keys)
 }
 
 INPUT_MODES = ("typed", "voice")
+RATINGS = ("up", "down")
 
 
 @dataclass(frozen=True)
@@ -47,5 +49,7 @@ def parse_command(message: dict[str, Any]) -> Command | None:
         if not isinstance(args[key], kind):
             return None
     if name == "input_mode" and args["mode"] not in INPUT_MODES:
+        return None
+    if name == "feedback" and args["rating"] not in RATINGS:
         return None
     return Command(name, args)
