@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from voicectl import llm
 from voicectl.actions.base import Action, actions
-from voicectl.actions.router import match_pattern
+from voicectl.actions.router import FAST_PATH_MAX_WORDS, match_pattern, normalize, quick_action  # noqa: F401 (re-exported)
 from voicectl.core.config import Config
 
 log = logging.getLogger("voicectl.router")
@@ -37,21 +37,6 @@ ROUTE_QUESTION = (
     "(how is it going). Never choose chat for something the user wants done. If it could be a simple command or real work, "
     "choose agent."
 )
-FAST_PATH_MAX_WORDS = 8          # short + a clean regex hit = run instantly, no model call
-
-_LEAD = re.compile(r"^(?:(?:hey|okay|ok|so|um|uh|well|and|then|right|alright)[,\s]+)*"
-                   r"(?:(?:can|could|would|will) you(?: please)?|please|i(?:'d| would) like you to|i want you to|go ahead and|let's)\s+", re.I)
-_TAIL = re.compile(r"[,\s]*(?:for me|please|thanks|thank you|now|right now)\W*$", re.I)
-
-
-def normalize(text: str) -> str:
-    """Strip politeness so "Can you open LinkedIn for me, please?" becomes "open LinkedIn" for the instant path."""
-    t = text.strip()
-    for _ in range(2):
-        t = _TAIL.sub("", _LEAD.sub("", t)).strip()
-    return t
-
-
 @dataclass
 class JevRead:
     """Everything one Jev call says about an utterance."""
@@ -244,7 +229,7 @@ def fast_route(text: str, job: str | None = None) -> Route | None:
         return Route("control", how="pattern")
     if SCREEN_FOLLOWUP.match(plain):
         return Route("agent", how="pattern")
-    if len(plain.split()) <= FAST_PATH_MAX_WORDS and (hit := match_pattern(plain)):
+    if hit := quick_action(text):
         return Route("action", hit[0], hit[1], how="pattern")
     return None
 
