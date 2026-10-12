@@ -10,6 +10,7 @@ struct OverlayView: View {
     var onSize: (CGSize) -> Void = { _ in }
 
     static let windowHeight: CGFloat = 640          // the panel's fixed size (main.swift); the card must fit inside it
+    static let windowWidth: CGFloat = 520           // wide enough for the status row with every button: nothing in it may wrap
 
     @State private var cardHeight: CGFloat = 0
 
@@ -19,14 +20,14 @@ struct OverlayView: View {
         let measured = card.fixedSize(horizontal: false, vertical: true)
             .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
         if snapshotFlat || cardHeight <= Self.windowHeight {
-            measured.frame(width: 480, height: Self.windowHeight, alignment: .bottom)
+            measured.frame(width: Self.windowWidth, height: Self.windowHeight, alignment: .bottom)
                 .onPreferenceChange(HeightKey.self) { cardHeight = $0 }
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
-                    measured.frame(width: 480).id("card")
+                    measured.frame(width: Self.windowWidth).id("card")
                 }
-                .frame(width: 480, height: Self.windowHeight)
+                .frame(width: Self.windowWidth, height: Self.windowHeight)
                 .onAppear { proxy.scrollTo("card", anchor: .bottom) }
                 .onChange(of: model.rateOpen) { _ in proxy.scrollTo("card", anchor: .bottom) }       // the note box opens at the bottom: keep it in view
                 .onChange(of: model.result) { _ in proxy.scrollTo("card", anchor: .bottom) }
@@ -82,7 +83,7 @@ struct OverlayView: View {
             if model.canRate { FeedbackBar(model: model).transition(.opacity) }
         }
         .padding(.horizontal, 22).padding(.vertical, model.isActive ? 20 : 10)
-        .frame(width: model.isActive ? 440 : nil)
+        .frame(width: model.isActive ? Self.windowWidth - 40 : nil)
         .fixedSize(horizontal: !model.isActive, vertical: false)       // idle pill hugs its text, whatever the label
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)

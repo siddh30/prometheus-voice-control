@@ -75,6 +75,9 @@ func renderSnapshots(to dir: String) {
             pc("MacBook", state: "done", task: "check my calendar", checklist: [["text": "Open Calendar", "status": "done"]], result: "Same two meetings."),
             pc("Mac mini", state: "offline", detail: "can't reach 192.168.1.30:8781")]])
     }
+    shot("26_prometheus_listening") {                              // the widest status row: chip, glyph, status word, timer and every button
+        $0.phase = .listening; $0.mode = "prometheus"; $0.listenStart = Date().addingTimeInterval(-44); $0.voiceOn = false
+    }
     shot("25_swarm_long_rated") {                                  // a long quote and two finished computers: it must fit, scroll, and offer thumbs
         $0.phase = .idle; $0.mode = "swarm"
         $0.transcript = "Okay, now on Macbook, can you check my profile and see what my profile looks like and based on that, on this Mac mini, open another LinkedIn tab which can tell me the best jobs for me. Also you may want to open another tab on this Mac mini which will also tell me all posts regarding any positions for my particular profile."
