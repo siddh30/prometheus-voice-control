@@ -89,6 +89,7 @@ memory:
   session_max_age_min: 60     # a session older than this is summarised into a short note and closed
   keep_turns_hours: 24        # the turn log (used for the note) is kept this long
   max_learnings: 300          # lessons learned from experience; the least used are dropped past this (yours never)
+  max_routes: 100             # saved routes (a task that hit failures and still got there); the least used are dropped past this
   max_facts: 200              # saved facts are capped; the ones you asked it to remember are never auto-deleted
   max_log_mb: 5               # log files over this are trimmed to their last megabyte
   max_rss_mb: 3500            # if the background process grows past this while idle, it restarts itself

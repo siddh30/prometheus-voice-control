@@ -26,8 +26,10 @@ NOTE="${1:-no note}"
 mkdir -p "$REL" "$BASE/data" "$BASE/phoenix_data"
 
 echo "1/6 snapshot of the code"
+# graphify-out, CLAUDE.md and .claude/settings.json are developer tooling: the agent loads project settings from the release folder, so keep them out
 rsync -a --exclude '.venv' --exclude 'data' --exclude 'data-*' --exclude 'phoenix_data' --exclude '.idea' --exclude '__pycache__' \
-      --exclude '.pytest_cache' --exclude 'overlay/.build' --exclude 'releases' --exclude '.git' --exclude '*.iml' "$SRC/" "$REL/"
+      --exclude '.pytest_cache' --exclude 'overlay/.build' --exclude 'releases' --exclude '.git' --exclude '*.iml' \
+      --exclude 'graphify-out' --exclude 'CLAUDE.md' --exclude '.gitattributes' --exclude '.claude/settings.json' "$SRC/" "$REL/"
 echo "$PROFILE_NAME" > "$REL/profile.txt"
 
 echo "2/6 secrets live once, outside the releases"

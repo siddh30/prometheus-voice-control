@@ -219,6 +219,7 @@ class AgentRunner:
         self.task = ""                # what it is currently working on
         self.last_step = ""
         self.last_plan: list[str] = []
+        self._dead_ends: list[tuple[str, str, str]] = []   # (host, tool, key) that failed in THIS conversation and have not worked since
 
     @property
     def pending_approval(self) -> bool:
@@ -269,12 +270,16 @@ class AgentRunner:
         @tool("list_learnings", "List the lessons learned so far (id, topic, lesson). Use when the user asks what you have learned.", {})
         async def list_learnings(args):
             rows = self.learnings.learnings(40)
-            return {"content": [{"type": "text", "text": "\n".join(f"{i}. [{t or 'general'}] {l}" for i, t, l, _ in rows) or "(nothing learned yet)"}]}
+            text = "\n".join(f"{i}. [{t or 'general'}] {l}" for i, t, l, _ in rows)
+            routes = self.learnings.routes(20)
+            if routes:
+                text += ("\n" if text else "") + "Routes that worked after something failed:\n" + "\n".join(f"- [{h}] {g}" for _, h, g in routes)
+            return {"content": [{"type": "text", "text": text or "(nothing learned yet)"}]}
 
-        @tool("forget_learning", "Delete lessons by id number or by a word in them.", {"query": str})
+        @tool("forget_learning", "Delete lessons (and saved routes) by id number or by a word in them.", {"query": str})
         async def forget_learning(args):
             n = self.learnings.forget_learning(str(args.get("query", "")))
-            return {"content": [{"type": "text", "text": f"Forgot {n} lesson(s)." if n else "No lesson matched."}]}
+            return {"content": [{"type": "text", "text": f"Forgot {n} lesson(s) or route(s)." if n else "No lesson matched."}]}
 
         return create_sdk_mcp_server("memory", tools=[remember, forget, list_facts, learn, list_learnings, forget_learning])
 
@@ -405,6 +410,7 @@ class AgentRunner:
         if self._client:
             await self._client.disconnect()
         self._client, self._session_row = None, None
+        self._dead_ends.clear()                                   # a new conversation starts without this one's dead ends
 
     ACTION_TOOLS = {"browser_click", "browser_type", "browser_goto", "browser_new_tab", "screen_click", "browser_switch_tab"}
 
@@ -429,6 +435,35 @@ class AgentRunner:
             nxt = next((r for r in records[i + 1:] if r[3] and r[0] == host and (r[1], r[2]) != (tool, key)), None)
             if nxt and self.learnings.record_recovery(host, (tool, key), (nxt[1], nxt[2])):
                 saved += 1
+
+    def _learn_route(self, goal: str, records: list[tuple[str, str, str, bool]]) -> None:
+        """A task that hit failures and still ended on a success: save the whole route (goal, what failed, what worked instead, in order),
+        so the next similar task starts from the route that worked. Not saved when nothing failed, or when the task never got there."""
+        first_fail = next((i for i, r in enumerate(records) if not r[3]), None)
+        if first_fail is None or not records[-1][3]:
+            return
+        host = next((r[0] for r in reversed(records) if r[3] and r[0]), "")
+        failed = [(r[1], r[2]) for r in records if not r[3] and r[0] == host]
+        worked = [(r[1], r[2]) for r in records[first_fail:] if r[3] and r[0] == host]
+        if failed and worked:
+            self.learnings.record_route(host, goal, failed, worked)
+
+    def _track_dead_ends(self, records: list[tuple[str, str, str, bool]]) -> None:
+        """This conversation's failures that have not worked since: the next turn is told not to repeat them (even after the thread is
+        compacted or restarted, when the model no longer remembers them)."""
+        for host, tool, key, ok in records:
+            item = (host.lower().removeprefix("www."), tool, key)
+            if ok and item in self._dead_ends:
+                self._dead_ends.remove(item)
+            elif not ok and item not in self._dead_ends:
+                self._dead_ends.append(item)
+        del self._dead_ends[:-12]
+
+    def _dead_end_lines(self, host: str, limit: int = 4) -> list[str]:
+        host = host.lower().removeprefix("www.")
+        mine = [d for d in self._dead_ends if not host or d[0] == host] or self._dead_ends
+        verb = self.learnings.VERB
+        return [f"On {h}, {verb.get(t, t)} '{k}' failed earlier in this conversation." for h, t, k in mine[-limit:]]
 
     async def _compact(self, row: dict) -> None:
         """Condense a long conversation: older exchanges become a short summary note (a fact, so it survives), the last few stay as the
@@ -511,6 +546,13 @@ class AgentRunner:
             lessons = self.learnings.relevant_learnings(f"{text} {self.browser.last_url}")
             if lessons:                                          # what experience says about THIS kind of request
                 hints = (hints + "\n" if hints else "") + "<Lessons>\n" + "\n".join(f"- {l}" for l in lessons) + "\n</Lessons>"
+            from urllib.parse import urlparse
+            site = urlparse(self.browser.last_url or "").netloc
+            routes = self.learnings.relevant_routes(text, site)            # a similar task got there by this route (this or an earlier conversation)
+            if routes:
+                hints = (hints + "\n" if hints else "") + "<Routes>\n" + "\n".join(f"- {r}" for r in routes) + "\n</Routes>"
+            if (dead := self._dead_end_lines(site)):                       # what already failed in THIS conversation
+                hints = (hints + "\n" if hints else "") + "<EarlierInThisConversation>\n" + "\n".join(f"- {d}" for d in dead) + "\n</EarlierInThisConversation>"
             if context or hints:      # context: what was just said / done elsewhere; hints: how much planning to show
                 prompt = (f"{hints}\n" if hints else "") + (f"<ConversationContext>\n{context}\n</ConversationContext>\n" if context else "") \
                          + f"\nRequest: {text}"
@@ -633,6 +675,9 @@ class AgentRunner:
             flt = HiddenTagFilter()
             final = (flt.feed(PLAN_RE.sub("", final)) + flt.flush()).strip()
             self._learn_recoveries(records)
+            self._track_dead_ends(records)
+            if not capped:
+                self._learn_route(text, records)
             self.memory.record_turn(row_id, claude_sid)
             self.memory.log_turn(row_id, text, final, " | ".join(outcome[-8:]))
             if self.checklist:                                         # the work is over: the plan must not linger on screen

@@ -121,6 +121,7 @@ class Maintenance:
                 learn_added += 1
         self.memory.set_meta("extracted_turn_id", str(turns[-1][0]))
         self.learnings.prune_learnings(self.config.get("memory.max_learnings", 300))
+        self.learnings.prune_routes(self.config.get("memory.max_routes", 100))
         return f"learned {facts_added} fact(s) and {learn_added} lesson(s)"
 
     async def forget_learnings(self) -> str:

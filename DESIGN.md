@@ -570,8 +570,30 @@ The system prompt carries a playbook mapping human actions to the *most reliable
 | **Episodic** | What was asked and answered (never tool output) | SQLite `turns` | 24 h; the last exchanges are recapped into a fresh session |
 | **Summary** | A short digest of older exchanges | a protected fact | Rewritten on each tidy or compaction |
 | **Semantic** | Durable facts about the user (roles, target companies, preferences, resume summary) | SQLite `facts` | Long-term. Saved by the agent when told, and extracted automatically from conversations |
-| **Procedural / learnings** | Lessons about *how to do things well*: site quirks, a method that worked after another failed, corrections from the user | Its **own store**, `learnings.db` | Long-term. Strengthened when seen again, ranked by use and recency, capped at 300 (your own are never culled). Survives "start fresh"; erased only by "forget what you've learned" |
+| **Procedural / learnings** | Lessons about *how to do things well*: site quirks, a method that worked after another failed, corrections from the user. Also **routes**: a whole task that hit failures and still got there (its goal, what failed, the route that worked) | Its **own store**, `learnings.db` | Long-term. Strengthened when seen again, ranked by use and recency, capped at 300 lessons and 100 routes (your own lessons are never culled). Survives "start fresh"; erased only by "forget what you've learned" |
+| **Dead ends (this conversation)** | What failed earlier in this conversation and has not worked since | In memory, in the agent | Until a new conversation; carried into every next turn, even after the thread is compacted or restarted |
 | **Static playbooks** | Hand-written prompt playbook and `SKILL.md` skills | Prompt, `.claude/skills` | Fixed |
+
+### Routes: reusing the way that worked
+
+```mermaid
+flowchart LR
+    TASK["a task runs<br/>each browser or mouse step succeeds or fails"] --> END{"ended on a success,<br/>after at least one failure?"}
+    END -- no --> DEAD["failures not yet fixed stay as<br/>dead ends for this conversation"]
+    END -- yes --> SAVE["save the route<br/>goal, what failed, the route that worked"]
+    SAVE --> DB[("learnings.db: routes")]
+    NEXT["the next task, any wording,<br/>same conversation or a later one"] --> MATCH{"similar goal?<br/>(shared words; the same site counts for more)"}
+    DB --> MATCH
+    MATCH -- yes --> SHOW["shown before it starts:<br/>Routes and EarlierInThisConversation"]
+    DEAD --> SHOW
+    SHOW --> AGENT["the agent starts with the route that worked<br/>and skips what already failed"]
+```
+
+- **Saved the moment the task ends**, so the very next turn of the same conversation already benefits; routes also survive restarts.
+- **Matched by the goal, not only the site**, so a differently worded task, or one that starts before any page is open, still finds it. At most two routes (about 300 characters each) are shown, so it costs few tokens.
+- **The same task again strengthens the route** and keeps the shortest way that worked. A route that stops working is just a hint: the agent says so and tries another way.
+- **Single mode and every swarm worker share it**, because they run the same agent. Each keeps its own `learnings.db`.
+- **Inspectable:** "what have you learned?" lists routes with the lessons, and "forget ..." removes them.
 
 ### How long-term memory is built
 
