@@ -163,7 +163,6 @@ widget builds commands only through `Command` in `Protocol.swift`, and a test fa
 | `voice` | `on` | Speak replies aloud, or show them as text only. |
 | `newchat` | none | Clean conversation; facts and lessons are kept. |
 | `fresh` | none | Forget everything you told it: the conversation, facts and sessions (the trash button). Learned lessons are kept. |
-| `forget_learnings` | none | Forget what it learned about how to do things: lessons, routes and your thumbs. What it knows about you is kept (the lightbulb button). |
 | `maintenance` | none | Tidy memory now. |
 | `key` | `name`, `down` | A hotkey seen by the app (F9 / F10 / Esc). The app owns the macOS permissions. |
 | `approval` | `approved` | The answer to an approval question (Approve / Deny buttons). |

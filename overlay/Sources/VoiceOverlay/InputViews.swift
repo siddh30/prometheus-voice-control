@@ -53,7 +53,6 @@ struct CommonControls: View {
         if model.swarm != nil { NetworkButton(on: model.mapOpen) { model.mapOpen.toggle() } }
         NewChatButton { model.newConversation() }
         RefreshButton { model.refresh() }
-        ClearButton(icon: "lightbulb.slash", armedText: "FORGET WHAT I LEARNED?", help: "Forget what I learned about how to do things (keeps what I know about you)") { model.forgetLearnings() }
         ClearButton(icon: "trash", armedText: "CLEAR ALL MEMORY?", help: "Clear everything I remember about you and our conversations (keeps what I learned about how to do things)") { model.startFresh() }
     }
 }

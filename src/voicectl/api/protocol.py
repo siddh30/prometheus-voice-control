@@ -13,7 +13,6 @@ COMMANDS: dict[str, dict[str, tuple[type, bool]]] = {
     "voice":        {"on": (bool, True)},                        # speak replies aloud, or text only
     "newchat":      {},                                          # fresh conversation, memory kept
     "fresh":        {},                                          # forget everything
-    "forget_learnings": {},                                      # forget what it learned about HOW to do things (lessons, routes, thumbs); memory of you is kept
     "maintenance":  {},                                          # tidy memory now
     "key":          {"name": (str, True), "down": (bool, True)}, # a hotkey seen by the app (it owns the macOS permissions)
     "approval":     {"approved": (bool, True)},                  # answer to an approval request

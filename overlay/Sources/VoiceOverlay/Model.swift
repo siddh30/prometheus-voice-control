@@ -334,9 +334,6 @@ final class OverlayModel: ObservableObject {
         reconnect?()
     }
 
-    /// Forget what it learned about how to do things (lessons, routes, thumbs). What it knows about you stays.
-    func forgetLearnings() { send(.forgetLearnings) }
-
     func respondApproval(_ ok: Bool) {
         approval = nil
         send(.approval(ok))

@@ -83,7 +83,7 @@ Release again on the main computer, and on each worker run `git pull` and `scrip
 
 ## The card
 
-Buttons on the widget: voice on/off, type, the computers map, new conversation, **refresh** (clears the screen and reconnects, nothing is forgotten), **lightbulb** (forget what it learned) and **trash** (clear all memory). The two clearing buttons take two clicks. A card taller than its window scrolls. After a run, thumbs up or down.
+Buttons on the widget: voice on/off, type, the computers map, new conversation, **refresh** (clears the screen and reconnects, nothing is forgotten) and **trash** (clear all memory, which keeps what it has learned; two clicks). A card taller than its window scrolls. After a run, thumbs up or down.
 
 ## Switching between Voice Control and Prometheus Swarm
 
