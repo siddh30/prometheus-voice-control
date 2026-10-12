@@ -12,7 +12,7 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 |---|---|
 | **Prometheus** (**F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
 | **Dictate** (**F9**) | Press, talk, press again: your words are typed at the cursor in any app. |
-| **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, start fresh. |
+| **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, refresh the widget, forget what it learned, clear all memory. After a run, thumbs up / down (with an optional note) tell it what worked. |
 
 ## Screenshots
 
@@ -40,7 +40,13 @@ Things it does well:
 - **Right amount of ceremony.** A question gets a one-line answer; a one-step action gets one sentence; a multi-step job gets a checklist.
 - **No permission nagging.** Ordinary things (open, search, click, play) just happen. Only money, sending and deleting are gated.
 - **Operates the browser like a person**: switches tabs, uses shortcuts, goes straight to the right URL, and falls back to the real mouse when a page element can't be clicked.
-- **Learns.** It records which actions work or fail per site and turns that into lessons it applies to the right task later.
+- **Learns.** It records which actions work or fail per site and turns that into lessons it applies to the right task later. Tap thumbs up or down after a run (a note says what went wrong): similar requests later are told what you liked and what you didn't.
+- **See what it learned.** `scripts/learnings.py show` lists the lessons, routes and your ratings; `check "what you would say"` prints what a new run of that request would be told; `add "topic" "lesson"` teaches it by hand.
+
+### More than one computer: Prometheus Swarm
+
+<p align="center"><a href="https://github.com/siddh30/prometheus-voice-control/tree/swarm"><img src="docs/swarm-results.png" alt="Prometheus Swarm: one request, two computers, each with its own checklist and result" width="380"></a></p>
+<p align="center"><sub><b>Prometheus Swarm</b> sends one request to several of your computers (here: LinkedIn on one, a resume on the other) and shows each one's progress and result. It lives on the <a href="https://github.com/siddh30/prometheus-voice-control/tree/swarm"><code>swarm</code> branch</a>, with its own setup guide.</sub></p>
 
 ## How it works
 
@@ -190,8 +196,9 @@ Then:
 | Press F10, or click the keyboard button and type | Interrupts and follows your newest instruction. |
 | "Thanks, that's all" / "bye" | Ends the conversation with a friendly goodbye. |
 | "New conversation" or "you're stuck" | Clean context, keeps what it knows about you. |
-| "Start fresh" / "forget everything" | Wipes conversations and facts (it keeps what it learned about *how* to do things). |
-| "Forget what you've learned" | Erases the learned lessons. |
+| "Start fresh" / "forget everything", or the trash button (two clicks) | Wipes conversations and facts (it keeps what it learned about *how* to do things). |
+| "Forget what you've learned", or the lightbulb button (two clicks) | Erases the learned lessons, routes and ratings (it keeps what it knows about you). |
+| The refresh button | Refreshes the widget itself: clears the screen and reconnects. Nothing is forgotten. |
 | "What have you learned?" | Lists them. |
 | "Text only" / "speak to me" | Switches between spoken and silent replies (handy on speakers). |
 
