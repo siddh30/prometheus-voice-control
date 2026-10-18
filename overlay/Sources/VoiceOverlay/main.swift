@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var typingWatch: AnyCancellable?
     var bag = Set<AnyCancellable>()
 
-    /// Voice Control and Prometheus Swarm both own F9 and F10, so only one may run at a time.
+    /// Voice Control and Prometheus Swarm both own Ctrl+F9 and Ctrl+F10, so only one may run at a time.
     private func otherAppIsOpen() -> String? {
         let mine = Bundle.main.bundleIdentifier ?? ""
         guard !mine.isEmpty else { return nil }                                   // a command-line dev run has no identity: never blocked
@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let other = otherAppIsOpen() {
             let alert = NSAlert()
             alert.messageText = "\(other) is already open"
-            alert.informativeText = "Both apps use F9 and F10, so only one can run at a time. Press F12 (Prometheus Switch) to switch, or quit \(other) first and open this one again."
+            alert.informativeText = "Both apps use Ctrl+F9 and Ctrl+F10, so only one can run at a time. Press Ctrl+F12 (Prometheus Switch) to switch, or quit \(other) first and open this one again."
             alert.runModal()
             NSApp.terminate(nil)
             return
@@ -168,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(withTitle: "Open Phoenix traces", action: #selector(openPhoenix), keyEquivalent: "").target = self
         m.addItem(withTitle: "Restart voice daemon", action: #selector(restartDaemon), keyEquivalent: "").target = self
         m.addItem(withTitle: model.voiceOn ? "Voice replies: on (click for text only)" : "Text only (click to hear replies)", action: #selector(toggleVoiceMenu), keyEquivalent: "").target = self
+        m.addItem(withTitle: model.citrixMode ? "Citrix mode: on (typing key by key; click to paste)" : "Citrix mode: off (click to type key by key)", action: #selector(toggleCitrixMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "New conversation (clean context)", action: #selector(newChatMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Start fresh (forget everything)", action: #selector(startFreshMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Clean memory now", action: #selector(cleanMemory), keyEquivalent: "").target = self
@@ -177,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc func openPhoenix() { NSWorkspace.shared.open(URL(string: "http://localhost:6006")!) }
     @objc func toggleVoiceMenu() { model.toggleVoice() }
+    @objc func toggleCitrixMenu() { model.toggleCitrix() }
     @objc func newChatMenu() { model.newConversation() }
     @objc func startFreshMenu() { model.startFresh() }
     @objc func refreshMenu() { model.refresh() }

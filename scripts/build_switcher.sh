@@ -1,8 +1,8 @@
 #!/bin/sh
-# Builds and installs "Prometheus Switch.app" (~/Applications): a menu-bar app, no Dock icon, with one job. While it is running, F12
+# Builds and installs "Prometheus Switch.app" (~/Applications): a menu-bar app, no Dock icon, with one job. While it is running, Ctrl+F12
 # (anywhere) or the button on its card quits whichever of Voice Control / Prometheus Swarm is running and opens the other. It has no
 # daemon and needs no release: run this once (again after changing its code). The first time, macOS asks for Accessibility and Input
-# Monitoring (for the F12 key); until you allow them, F12 still works while the card is open.
+# Monitoring (for the Ctrl+F12 key); until you allow them, Ctrl+F12 still works while the card is open.
 set -e
 cd "$(dirname "$0")/.."
 APP="$HOME/Applications/Prometheus Switch.app"

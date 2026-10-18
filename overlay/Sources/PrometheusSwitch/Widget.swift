@@ -4,12 +4,12 @@ import SwiftUI
 @MainActor
 final class SwitchModel: ObservableObject {
     @Published var running: Set<Mode> = []
-    @Published var expanded = false             // true while the card is on screen (and only then does F12 work)
+    @Published var expanded = false             // true while the card is on screen (and only then does Ctrl+F12 work)
     @Published var message = ""                 // "Closing Voice Control…", or a problem in plain words
     @Published var failed = false
     @Published var busy = false
     @Published var loginOn = false
-    @Published var keyActive = false            // F12 works anywhere (the one-time keyboard permissions are granted)
+    @Published var keyActive = false            // Ctrl+F12 works anywhere (the one-time keyboard permissions are granted)
 
     var onCollapse: () -> Void = {}
     var onPrivacy: () -> Void = {}
@@ -42,7 +42,7 @@ struct SwitchCard: View {
                 Image(systemName: "arrow.left.arrow.right.circle.fill").font(.system(size: 24)).foregroundStyle(SwarmLikeAccent.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Prometheus Switch").font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundStyle(.white)
-                    Text(model.keyActive ? "Press F12 anywhere" : "Press F12 while this is open").font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.5))
+                    Text(model.keyActive ? "Press Ctrl+F12 anywhere" : "Press Ctrl+F12 while this is open").font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.5))
                 }
                 Spacer()
                 Image(systemName: "chevron.down.circle.fill").font(.system(size: 18)).foregroundStyle(.white.opacity(0.35))
@@ -66,7 +66,7 @@ struct SwitchCard: View {
 
             Divider().overlay(.white.opacity(0.1))
             if !model.keyActive {
-                Button { model.onPrivacy() } label: { Label("Allow F12 everywhere…", systemImage: "keyboard") }
+                Button { model.onPrivacy() } label: { Label("Allow Ctrl+F12 everywhere…", systemImage: "keyboard") }
                     .buttonStyle(.link).font(.system(size: 11, design: .rounded))
             }
             HStack {

@@ -137,6 +137,6 @@ def test_emoji_never_reach_the_captions():
 async def test_pressing_the_key_during_music_records_as_usual_and_never_pauses_the_song():
     m, browser, events, ctx = make()
     await m._agent_turn("play it"); m._music_watch.cancel()
-    m._on_record_start()                                                    # F10: the recorder starts
+    m._on_record_start()                                                    # Ctrl+F10: the recorder starts
     assert "pause" not in browser.calls and m.music is not None             # the song keeps playing
     assert ("state", {"state": "listening", "mode": "prometheus"}) in events

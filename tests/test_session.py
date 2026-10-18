@@ -146,7 +146,7 @@ async def test_any_mode_key_escapes_a_stuck_conversation():
     s.key_down("assistant")
     await asyncio.sleep(0.05)
     assert s.state is State.HANDLING
-    s.key_down("speak")                       # F9 during the conversation
+    s.key_down("speak")                       # Ctrl+F9 during the conversation
     await asyncio.sleep(0.8)
     assert s.state is State.LISTENING and s.active_mode == "speak"     # conversation ended, dictation started
     s.key_down("speak")
@@ -161,7 +161,7 @@ async def test_the_same_key_inside_a_conversation_starts_and_sends_recordings_an
     s = SessionManager(cfg, bus, FakeMic(), FakeSTT(), {"assistant": HangingConversation(ModeContext(cfg, bus))})
     s.key_down("assistant"); await asyncio.sleep(0.05)           # opens the conversation (its first recording starts there)
     assert s.conversation_active() and HangingConversation.presses == 0
-    s.key_down("assistant"); await asyncio.sleep(0.05)           # F10 again: the recorder's start / send
+    s.key_down("assistant"); await asyncio.sleep(0.05)           # Ctrl+F10 again: the recorder's start / send
     assert s.conversation_active() and HangingConversation.presses == 1 and s.state is State.HANDLING
     s.cancel(); await asyncio.sleep(0.05)                        # Escape ends the conversation
     assert s.state is State.IDLE and not s.conversation_active()

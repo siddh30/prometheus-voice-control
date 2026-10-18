@@ -1,6 +1,6 @@
 import Foundation
 
-/// The two apps this switcher chooses between. They share F9 and F10, so only one may run at a time.
+/// The two apps this switcher chooses between. They share Ctrl+F9 and Ctrl+F10, so only one may run at a time.
 enum Mode: String, CaseIterable {
     case single, swarm
 
@@ -10,7 +10,7 @@ enum Mode: String, CaseIterable {
     var other: Mode { self == .single ? .swarm : .single }
 }
 
-/// What one press of F12 does: quit this one first (if any), then open that one.
+/// What one press of Ctrl+F12 does: quit this one first (if any), then open that one.
 struct Plan: Equatable {
     let quit: [Mode]
     let launch: Mode

@@ -1,4 +1,4 @@
-"""F10 in the swarm app, end to end: the real session manager and conversation loop, the real router, controller and workers
+"""Ctrl+F10 in the swarm app, end to end: the real session manager and conversation loop, the real router, controller and workers
 (in process); only the microphone, speech-to-text and what each computer's agent does are stubs."""
 import asyncio
 
@@ -60,8 +60,8 @@ async def settle(t=0.3): await asyncio.sleep(t)
 async def test_press_talk_press_and_the_request_lands_on_the_named_computer_silently():
     session, mode, controller, events, log = build("open gmail on the laptop")
     await controller.start()
-    session.key_down("swarm"); await settle(0.1)               # F10: opens the conversation and starts recording
-    session.key_down("swarm"); await settle(0.6)               # F10: send
+    session.key_down("swarm"); await settle(0.1)               # Ctrl+F10: opens the conversation and starts recording
+    session.key_down("swarm"); await settle(0.6)               # Ctrl+F10: send
     assert log == [("MacBook", "open gmail")]                  # routed by name; the routing words are not part of the task
     last = [d for t, d in events if t == "swarm"][-1]
     macbook = next(p for p in last["pcs"] if p["name"] == "MacBook")

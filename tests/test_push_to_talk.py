@@ -1,4 +1,4 @@
-"""The whole F10 path with the real session manager and conversation loop; only the microphone, STT and the reply are stubs."""
+"""The whole Ctrl+F10 path with the real session manager and conversation loop; only the microphone, STT and the reply are stubs."""
 import asyncio
 
 import numpy as np
@@ -66,7 +66,7 @@ async def test_pressing_f10_while_it_is_working_cuts_it_off_and_records_the_next
     session.key_down("conversation"); await settle()
     session.key_down("conversation"); await settle()                       # "long task" is now running
     assert mode._busy() and not mic.open
-    session.key_down("conversation"); await settle()                       # F10 again: interrupt and record
+    session.key_down("conversation"); await settle()                       # Ctrl+F10 again: interrupt and record
     assert cancelled == ["long task"] and mic.open and states[-1] == "listening"
     session.key_down("conversation"); await settle(0.5)                    # send the new request
     assert not mode._busy() and states[-1] == "idle"
@@ -88,7 +88,7 @@ async def test_typing_and_pressing_enter_interrupts_and_never_opens_the_micropho
     await settle(0.3)
     assert mic.opened == opened and not mic.open                           # no recording happened
     session.key_down("conversation"); await settle()
-    assert mic.opened == opened                                            # F10 is ignored while typing
+    assert mic.opened == opened                                            # Ctrl+F10 is ignored while typing
     mode.set_typed_only(False)
     session.key_down("conversation"); await settle()
     assert mic.opened == opened + 1 and mic.open                           # closing the box brings voice back

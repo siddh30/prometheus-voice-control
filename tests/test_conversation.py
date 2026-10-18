@@ -164,7 +164,7 @@ async def test_an_unused_conversation_stays_open_it_is_only_the_widget_that_shri
     m, ears, _ = make(respond)
     run = await start(m)
     await asyncio.sleep(1.2)                                           # long past any old idle timeout
-    assert not run.done()                                              # still there: F10 picks up where you left off
+    assert not run.done()                                              # still there: Ctrl+F10 picks up where you left off
     ears.say("goodbye")
     await asyncio.wait_for(run, 3)
 
@@ -177,7 +177,7 @@ async def test_an_empty_recording_gets_a_hint_and_waits_instead_of_ending_the_co
     run = await start(m)
     for _ in range(4):
         ears.say(""); await settle(0.1)
-    assert not run.done()                                              # still open: you can press F10 and try again
+    assert not run.done()                                              # still open: you can press Ctrl+F10 and try again
     assert sum(1 for t, d in notices if t == "notice" and "Didn't catch that" in d["text"]) == 4
     ears.say("goodbye")
     await asyncio.wait_for(run, 3)

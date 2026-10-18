@@ -1,6 +1,6 @@
 # Prometheus Swarm: one voice request, several of your Macs
 
-**Prometheus Swarm** sends what you say to the right computer, or to several at once, and shows each one's progress on one card. You press **F10**, talk, press **F10** again. The computer you speak on understands you once, hands each part to the right worker, and each worker runs the normal Prometheus agent on its own screen, in its own already-logged-in Chrome, and reports back.
+**Prometheus Swarm** sends what you say to the right computer, or to several at once, and shows each one's progress on one card. You press **Ctrl+F10**, talk, press **Ctrl+F10** again. The computer you speak on understands you once, hands each part to the right worker, and each worker runs the normal Prometheus agent on its own screen, in its own already-logged-in Chrome, and reports back.
 
 > This branch is only the swarm. The single-computer voice assistant it is built on (push-to-talk, the browser agent, dictation, memory, install and permissions) is described on the default branch: **[Voice Control, the single-mode README](https://github.com/siddh30/prometheus-voice-control)**. Read that first for the basics; everything below is what the swarm adds.
 >
@@ -31,7 +31,7 @@
 
 ```mermaid
 flowchart LR
-    YOU["You: F10, talk, F10"] --> STT["one transcription"]
+    YOU["You: Ctrl+F10, talk, Ctrl+F10"] --> STT["one transcription"]
     STT --> ROUTER["Router<br/>rules first, a small model for splits"]
     ROUTER --> CTRL["Controller<br/>this computer"]
     CTRL --> L1["Local worker<br/>this computer"]
@@ -85,9 +85,13 @@ Release again on the main computer, and on each worker run `git pull` and `scrip
 
 Buttons on the widget: voice on/off, type, the computers map, new conversation, **refresh** (clears the screen and reconnects, nothing is forgotten) and **trash** (clear all memory, which keeps what it has learned; two clicks). A card taller than its window scrolls. After a run, thumbs up or down.
 
+**Keys:** every hotkey is **Control + the key** (Ctrl+F9 dictate, Ctrl+F10 talk, Ctrl+F12 switch apps), so a plain F9 or F10 still works in every other app. Esc still cancels a recording.
+
+**Citrix mode:** the desktop-computer button on the widget (also in the Dock menu) makes dictation type key by key, like a keyboard, instead of pasting. Turn it on for Citrix Viewer and other remote windows that ignore a paste; turn it off to paste again. It is remembered between launches.
+
 ## Switching between Voice Control and Prometheus Swarm
 
-The two apps both use F9 and F10, so only one can run at a time. **Prometheus Switch** is a small app that swaps them: while it runs (its icon is in the menu bar), press **F12** anywhere. It quits the running app, waits until it has really exited, and opens the other. Click the icon for a card with both apps and a Switch button. It never force-quits an app. Install it once with `scripts/build_switcher.sh`; macOS asks for Accessibility and Input Monitoring the first time (needed to see F12 everywhere).
+The two apps both use Ctrl+F9 and Ctrl+F10, so only one can run at a time. **Prometheus Switch** is a small app that swaps them: while it runs (its icon is in the menu bar), press **Ctrl+F12** anywhere. It quits the running app, waits until it has really exited, and opens the other. Click the icon for a card with both apps and a Switch button. It never force-quits an app. Install it once with `scripts/build_switcher.sh`; macOS asks for Accessibility and Input Monitoring the first time (needed to see Ctrl+F12 everywhere).
 
 ## Configuration
 

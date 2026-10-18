@@ -45,7 +45,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Prometheus controls your Chrome (the sites you already use) when you ask it to browse for you.</string>
-  <key>NSMicrophoneUsageDescription</key><string>$NAME records your voice while you hold F9, F10 or F11.</string>
+  <key>NSMicrophoneUsageDescription</key><string>$NAME records your voice while you hold Ctrl+F9, Ctrl+F10 or F11.</string>
 </dict></plist>
 PLIST
 # Sign with the stable local certificate when present: macOS ties Accessibility / Input Monitoring /

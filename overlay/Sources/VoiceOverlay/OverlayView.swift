@@ -209,6 +209,22 @@ struct VoiceToggle: View {
     }
 }
 
+/// Citrix mode: dictation is typed key by key like a keyboard instead of pasted (a remote desktop window ignores the paste).
+struct CitrixToggle: View {
+    let on: Bool
+    let action: () -> Void
+    var body: some View {
+        Image(systemName: "desktopcomputer")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(on ? Color.cyan.opacity(0.95) : Color.white.opacity(0.75))
+            .frame(width: 22, height: 22)
+            .background(Circle().fill(on ? Color.cyan.opacity(0.20) : Color.white.opacity(0.08)))
+            .contentShape(Circle())
+            .onTapGesture(perform: action)
+            .help(on ? "Citrix mode on: dictation is typed key by key. Click to paste instead." : "Citrix mode off: dictation is pasted. Click to type key by key (for Citrix Viewer).")
+    }
+}
+
 /// What you said / what Prometheus is saying. Grows with the text; very long text scrolls and follows the newest words.
 struct CaptionView: View {
     let text: String

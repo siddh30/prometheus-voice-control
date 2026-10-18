@@ -275,7 +275,7 @@ struct SwarmBox: View {
     }
 }
 
-/// Opens the map without pressing F10, so you can pick a computer first.
+/// Opens the map without pressing Ctrl+F10, so you can pick a computer first.
 struct NetworkButton: View {
     let on: Bool
     let action: () -> Void

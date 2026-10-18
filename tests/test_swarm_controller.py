@@ -95,7 +95,7 @@ async def test_f10_while_working_cancels_the_work_on_every_computer_and_clears_t
     await c.start()
     run = asyncio.create_task(c.run("search the web on both"))
     assert await until(lambda: snaps and all(pc(snaps[-1], n)["state"] == "working" for n in ("Studio", "MacBook")))
-    run.cancel()                                                                       # what pressing F10 does to the turn
+    run.cancel()                                                                       # what pressing Ctrl+F10 does to the turn
     await asyncio.gather(run, return_exceptions=True)
     assert workers["Studio"].executor.cancelled and workers["MacBook"].executor.cancelled
     await asyncio.sleep(0.1)

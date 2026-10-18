@@ -10,7 +10,7 @@ from voicectl.output.typer import AppTyper, Typer
 
 @modes.register("dictate")
 class DictateMode(Mode):
-    """F9: you speak, the words are typed at the cursor of whatever app has focus. No reply, no routing."""
+    """Ctrl+F9: you speak, the words are typed at the cursor of whatever app has focus. No reply, no routing."""
     name = "dictate"
 
     def __init__(self, ctx: ModeContext) -> None:

@@ -14,7 +14,7 @@ log = logging.getLogger("voicectl.swarm")
 
 @modes.register("swarm")
 class SwarmMode(ConversationMode):
-    """F10 in the swarm app. Same push-to-talk as single mode: press, talk, press. Your words are transcribed once, here, and the
+    """Ctrl+F10 in the swarm app. Same push-to-talk as single mode: press, talk, press. Your words are transcribed once, here, and the
     router sends each part to the right computer. Replies are silent (the widget's box shows every computer's progress);
     the only thing spoken is a question when some computer needs your approval."""
     name = "swarm"

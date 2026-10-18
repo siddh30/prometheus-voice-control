@@ -163,7 +163,7 @@ async def test_chat_that_recognises_a_task_hands_it_to_the_agent_instead_of_refu
 
 
 async def test_pressing_the_key_does_not_stop_a_running_job(monkeypatch):
-    """F10 is for talking: you can give instructions while it works, and say "stop" to cancel (the spoken stop is tested above)."""
+    """Ctrl+F10 is for talking: you can give instructions while it works, and say "stop" to cancel (the spoken stop is tested above)."""
     m, runner, spk, bus = make(monkeypatch, [Route("agent")])
     runner.finish = asyncio.Event()
     await m.respond("search linkedin"); await runner.started.wait()

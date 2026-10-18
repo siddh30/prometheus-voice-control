@@ -149,7 +149,7 @@ class SwarmController:
                 await asyncio.gather(*list(self._waits.values()))
                 await asyncio.sleep(0)
         except asyncio.CancelledError:
-            await self.cancel_all()                          # F10 / Esc while working: stop the work everywhere
+            await self.cancel_all()                          # Ctrl+F10 / Esc while working: stop the work everywhere
             raise
         return self._summary()
 

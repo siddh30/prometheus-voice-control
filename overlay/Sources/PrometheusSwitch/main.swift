@@ -3,10 +3,10 @@ import ApplicationServices
 import ServiceManagement
 import SwiftUI
 
-/// Prometheus Switch: a menu-bar app with one job. While it is running, F12 (anywhere) or the button on its card quits whichever of Voice
-/// Control / Prometheus Swarm is running, waits until it has really gone, and opens the other. (They share F9 and F10, so only one can run
+/// Prometheus Switch: a menu-bar app with one job. While it is running, Ctrl+F12 (anywhere) or the button on its card quits whichever of Voice
+/// Control / Prometheus Swarm is running, waits until it has really gone, and opens the other. (They share Ctrl+F9 and Ctrl+F10, so only one can run
 /// at a time.) The card extends down from the menu-bar icon as feedback and disappears when it is done. Until the one-time keyboard
-/// permissions are granted, F12 still works while the card is open. It never force-quits: an app that will not quit is reported, because
+/// permissions are granted, Ctrl+F12 still works while the card is open. It never force-quits: an app that will not quit is reported, because
 /// killing it could leave its voice daemon running.
 
 /// ~/Library/Logs/PrometheusSwitch.log: every key press, click, decision and outcome, so "it did nothing" can always be explained.
@@ -18,7 +18,7 @@ func note(_ text: String) {
     print(line, terminator: "")
 }
 
-/// The floating card's window. It exists on screen only while the card is open, and then it takes the keyboard (so F12 works).
+/// The floating card's window. It exists on screen only while the card is open, and then it takes the keyboard (so Ctrl+F12 works).
 final class WidgetPanel: NSPanel {
     var wantsKey = false
     override var canBecomeKey: Bool { wantsKey }
@@ -51,9 +51,9 @@ final class Switcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if let i = CommandLine.arguments.firstIndex(of: "--now") { runOnce(CommandLine.arguments.dropFirst(i + 1).first); return }
         note("started (pid \(ProcessInfo.processInfo.processIdentifier))")
-        // A menu-bar app with no window is what macOS "App Nap" throttles, which would make F12 unreliable when the card is closed.
+        // A menu-bar app with no window is what macOS "App Nap" throttles, which would make Ctrl+F12 unreliable when the card is closed.
         activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
-                                                         reason: "Listening for the F12 key")
+                                                         reason: "Listening for the Ctrl+F12 key")
         model.onPick = { [weak self] mode in self?.switchTo(mode) }
         model.onPrivacy = {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
@@ -81,15 +81,15 @@ final class Switcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated {
                 guard let self, let t = self.tap, !CGEvent.tapIsEnabled(tap: t) else { return }
                 CGEvent.tapEnable(tap: t, enable: true)
-                note("F12 tap had been switched off by macOS: switched back on")
+                note("Ctrl+F12 tap had been switched off by macOS: switched back on")
             }
         }
-        // Fallback for before the permissions are granted: F12 is an ordinary key event for the card while the card is open.
+        // Fallback for before the permissions are granted: Ctrl+F12 is an ordinary key event for the card while the card is open.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             return MainActor.assumeIsolated {
-                guard self.model.expanded, event.keyCode == 111, event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return event }
-                if !event.isARepeat { note("F12 pressed (window open)"); self.switchNow() }
+                guard self.model.expanded, event.keyCode == 111, event.modifierFlags.contains(.control), event.modifierFlags.intersection([.command, .option]).isEmpty else { return event }
+                if !event.isARepeat { note("Ctrl+F12 pressed (window open)"); self.switchNow() }
                 return nil                                                       // swallowed, so macOS does not also change the volume
             }
         }
@@ -126,7 +126,7 @@ final class Switcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         widget = panel                                                             // not shown yet
     }
 
-    /// Show the card (floating just under the menu-bar icon, taking the keyboard so F12 works), or hide it completely.
+    /// Show the card (floating just under the menu-bar icon, taking the keyboard so Ctrl+F12 works), or hide it completely.
     private func setExpanded(_ on: Bool) {
         guard let panel = widget else { return }
         collapseTimer?.invalidate()
@@ -295,7 +295,7 @@ final class Switcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    // ---- the F12 key, anywhere ----
+    // ---- the Ctrl+F12 key, anywhere ----
     private func startTap() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(opts)                                   // the system's one-time prompt
@@ -312,7 +312,7 @@ final class Switcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let refcon else { return Unmanaged.passUnretained(event) }
             return MainActor.assumeIsolated { Unmanaged<Switcher>.fromOpaque(refcon).takeUnretainedValue().handle(type, event) }
         }, userInfo: me) else {
-            note("F12 tap could not be created: Accessibility / Input Monitoring not granted yet (retrying every 2 s); F12 works while the card is open")
+            note("Ctrl+F12 tap could not be created: Accessibility / Input Monitoring not granted yet (retrying every 2 s); Ctrl+F12 works while the card is open")
             model.keyActive = false
             retry = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.attempt() } }
             return
@@ -321,24 +321,28 @@ final class Switcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, t, 0), .commonModes)
         CGEvent.tapEnable(tap: t, enable: true)
         model.keyActive = true
-        note("F12 tap is active: F12 works anywhere")
+        note("Ctrl+F12 tap is active: Ctrl+F12 works anywhere")
     }
 
+    private var f12Held = false
     /// Runs inside the keyboard event tap, so it only compares a key code and hands the real work to the main queue.
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
             return Unmanaged.passUnretained(event)
         }
-        let mods: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate]
-        guard event.getIntegerValueField(.keyboardEventKeycode) == 111, event.flags.intersection(mods).isEmpty else {   // F12, no modifiers
+        let others: CGEventFlags = [.maskCommand, .maskAlternate]
+        let code = event.getIntegerValueField(.keyboardEventKeycode)
+        if code == 111 && type == .keyUp && f12Held { f12Held = false; return nil }          // the release of a Control+F12 we swallowed
+        guard code == 111, event.flags.contains(.maskControl), event.flags.intersection(others).isEmpty else {   // Control+F12
             return Unmanaged.passUnretained(event)
         }
+        if type == .keyDown { f12Held = true }
         if type == .keyDown && event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
-            note("F12 pressed")
+            note("Control+F12 pressed")
             DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.switchNow() } }
         }
-        return nil                                                                // swallowed: macOS must not also treat F12 as volume up
+        return nil                                                                // swallowed: macOS must not also treat Ctrl+F12 as volume up
     }
 }
 

@@ -1,4 +1,4 @@
-"""Prometheus Switch: F12 swaps Voice Control and Prometheus Swarm. Its decision logic is compiled and run for real."""
+"""Prometheus Switch: Ctrl+F12 swaps Voice Control and Prometheus Swarm. Its decision logic is compiled and run for real."""
 import pathlib
 import re
 import shutil
@@ -49,7 +49,7 @@ def test_the_switcher_is_a_separate_menu_bar_app_that_never_force_quits():
     assert 'name: "PrometheusSwitch"' in package and 'name: "VoiceOverlay"' in package
     code = (SRC / "main.swift").read_text()
     assert "forceTerminate" not in code and ".terminate()" in code             # a graceful quit only: a kill could orphan the voice daemon
-    assert "keyboardEventKeycode) == 111" in code and "tapCreate" in code     # F12 works anywhere while the app runs
+    assert "keyboardEventKeycode)" in code and "== 111" in code and "maskControl" in code and "tapCreate" in code     # Ctrl+F12 works anywhere while the app runs
     assert "event.keyCode == 111" in code and "self.model.expanded" in code   # ...and while the card is open, even before the permissions are granted
     assert "beginActivity" in code                                            # a window-less app must not be put to sleep by macOS (App Nap)
     assert "NSPopover" not in code and "WidgetPanel" in code                  # a floating card extending from the icon, not a popover
