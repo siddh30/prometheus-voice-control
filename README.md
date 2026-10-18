@@ -1,6 +1,6 @@
 # Prometheus: a voice assistant for macOS that talks *and* acts
 
-Press **F10**, talk, and press **F10** again. It answers out loud, and it can also *do* things: search YouTube and play a song, switch to a tab, scroll a page, fill a form, click what it sees on screen, read a file. It runs in **your own, already-logged-in Chrome**, narrates what it is doing, shows a plan for bigger jobs, and you can interrupt it any time by pressing F10 or typing. Nothing listens in between: the microphone is open only while you record.
+Press **Ctrl+F10**, talk, and press **Ctrl+F10** again. It answers out loud, and it can also *do* things: search YouTube and play a song, switch to a tab, scroll a page, fill a form, click what it sees on screen, read a file. It runs in **your own, already-logged-in Chrome**, narrates what it is doing, shows a plan for bigger jobs, and you can interrupt it any time by pressing Ctrl+F10 or typing. Nothing listens in between: the microphone is open only while you record.
 
 It also remembers. It keeps what it knows about you, and it learns from what worked and what failed on the sites it visits, so it takes fewer steps next time.
 
@@ -10,13 +10,13 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
 
 | | |
 |---|---|
-| **Prometheus** (**F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
-| **Dictate** (**F9**) | Press, talk, press again: your words are typed at the cursor in any app. |
+| **Prometheus** (**Ctrl+F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also acts: your own Chrome, the screen and mouse, files, the web. |
+| **Dictate** (**Ctrl+F9**) | Press, talk, press again: your words are typed at the cursor in any app. |
 | **A floating widget** | Siri-style ribbons and a state label (listening, thinking, working, speaking), the plan and steps, live captions. Buttons: voice on/off, type to Prometheus, new conversation, refresh the widget, clear all memory. After a run, thumbs up / down (with an optional note) tell it what worked. |
 
 ## Screenshots
 
-### Dictate mode (F9)
+### Dictate mode (Ctrl+F9)
 
 <table align="center">
   <tr>
@@ -29,14 +29,14 @@ It also remembers. It keeps what it knows about you, and it learns from what wor
   </tr>
 </table>
 
-### Prometheus mode (F10 or "Prometheus")
+### Prometheus mode (Ctrl+F10 or "Prometheus")
 
 <p align="center"><img src="docs/widget.png" alt="Prometheus mode: working through a job search with a live checklist" width="380"></p>
 <p align="center"><sub><b>Working</b> through a multi-step job, with the plan and the current step on screen.</sub></p>
 
 Things it does well:
 
-- **Interrupt it.** Press F10 (or type and press Enter) while it speaks or works: it stops and follows your newest request. The microphone is closed whenever you are not recording, so there is nothing to talk over and no wake word.
+- **Interrupt it.** Press Ctrl+F10 (or type and press Enter) while it speaks or works: it stops and follows your newest request. The microphone is closed whenever you are not recording, so there is nothing to talk over and no wake word.
 - **Right amount of ceremony.** A question gets a one-line answer; a one-step action gets one sentence; a multi-step job gets a checklist.
 - **No permission nagging.** Ordinary things (open, search, click, play) just happen. Only money, sending and deleting are gated.
 - **Operates the browser like a person**: switches tabs, uses shortcuts, goes straight to the right URL, and falls back to the real mouse when a page element can't be clicked.
@@ -68,7 +68,7 @@ flowchart LR
         BUS[(Event bus)]
         WS[WebSocket bridge]
         SM[Session manager<br/>state machine]
-        REC[Push-to-talk recorder<br/>F10 starts, F10 sends]
+        REC[Push-to-talk recorder<br/>Ctrl+F10 starts, Ctrl+F10 sends]
         STT[Speech-to-text<br/>OpenAI Whisper or local faster-whisper]
         TTS[Speaker<br/>Edge neural TTS, word-timed captions]
         subgraph Modes
@@ -114,14 +114,14 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant U as You
-    participant E as Recorder (F10)
+    participant E as Recorder (Ctrl+F10)
     participant S as STT
     participant P as Prometheus
     participant J as Jev
     participant A as Agent (Claude)
     participant T as Speaker
 
-    U->>E: presses F10, speaks, presses F10
+    U->>E: presses Ctrl+F10, speaks, presses Ctrl+F10
     E->>S: the recording
     S->>P: text
     P->>J: instant command? complexity? risk?
@@ -136,7 +136,7 @@ sequenceDiagram
             P-->>U: step shown on the widget
         end
     end
-    U-->>E: presses F10 (or types and presses Enter)
+    U-->>E: presses Ctrl+F10 (or types and presses Enter)
     E-->>T: stop speaking at once
     E-->>A: cancel, the new request becomes the instruction
 ```
@@ -182,7 +182,7 @@ Then:
 
 1. **Grant permissions** in System Settings > Privacy & Security to *Voice Control*: **Microphone**, **Accessibility**, **Input Monitoring**, **Screen Recording** (screen looking only).
 2. **Turn on Chrome remote debugging:** in Chrome open `chrome://inspect/#remote-debugging` and enable it. The first time Prometheus drives the browser, Chrome shows an *Allow* prompt, once per app launch. Chrome will also show a "controlled by automated test software" banner while it works.
-3. Say **"Prometheus"**, or press **F10**.
+3. Say **"Prometheus"**, or press **Ctrl+F10**.
 
 **Dock or Desktop:** the app is installed at `~/Applications/Voice Control.app`. Drag it from Finder to the Dock to pin it, or hold **Option+Command** while dragging it to the Desktop to make a shortcut. Tip: wearing headphones gives the best experience (no echo, so you can interrupt freely).
 
@@ -190,10 +190,10 @@ Then:
 
 | You say / do | What happens |
 |---|---|
-| "Play Daft Punk on YouTube" | Opens the search in a tab, picks the real result, plays it. The song keeps playing; press F10 to talk over it. |
+| "Play Daft Punk on YouTube" | Opens the search in a tab, picks the real result, plays it. The song keeps playing; press Ctrl+F10 to talk over it. |
 | "Switch to my LinkedIn tab and scroll down" | Uses the tab and scroll tools, and reports if the page didn't move. |
 | "Open it in another tab" | Does exactly that and stops. |
-| Press F10, or click the keyboard button and type | Interrupts and follows your newest instruction. |
+| Press Ctrl+F10, or click the keyboard button and type | Interrupts and follows your newest instruction. |
 | "Thanks, that's all" / "bye" | Ends the conversation with a friendly goodbye. |
 | "New conversation" or "you're stuck" | Clean context, keeps what it knows about you. |
 | "Start fresh" / "forget everything", or the trash button (two clicks) | Wipes conversations and facts (it keeps what it learned about *how* to do things). |
@@ -201,6 +201,10 @@ Then:
 | The refresh button | Refreshes the widget itself: clears the screen and reconnects. Nothing is forgotten. |
 | "What have you learned?" | Lists them. |
 | "Text only" / "speak to me" | Switches between spoken and silent replies (handy on speakers). |
+
+**Keys:** every hotkey is **Control + the key** (Ctrl+F9 dictate, Ctrl+F10 talk), so a plain F9 or F10 still works in every other app. Esc still cancels a recording.
+
+**Citrix mode:** the desktop-computer button on the widget (also in the Dock menu) makes dictation type key by key, like a keyboard, instead of pasting. Turn it on for Citrix Viewer and other remote windows that ignore a paste; turn it off to paste again. It is remembered between launches.
 
 ## Configuration
 

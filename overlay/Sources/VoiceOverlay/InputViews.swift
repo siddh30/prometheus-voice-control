@@ -57,23 +57,26 @@ struct VoiceInputView: View {
         PillShell {
             StatusRow(model: model)
             if model.phase == .listening, let since = model.listenStart { ElapsedLabel(since: since) }
-            VoiceToggle(on: model.voiceOn) { model.toggleVoice() }
+            HStack(spacing: 6) {
+                VoiceToggle(on: model.voiceOn) { model.toggleVoice() }
+                CitrixToggle(on: model.citrixMode) { model.toggleCitrix() }
+            }
             CommonControls(model: model)
         }
     }
 }
 
-/// What to press, under the caption. Talking is push-to-talk: F10 starts a recording and F10 again sends it, and
+/// What to press, under the caption. Talking is push-to-talk: Ctrl+F10 starts a recording and Ctrl+F10 again sends it, and
 /// starting a recording is also how you interrupt. These hints belong to the voice kind only.
 struct VoiceHint: View {
     @ObservedObject var model: OverlayModel
     var body: some View {
         if model.conversational && model.notice.isEmpty
             && (model.phase == .listening || model.phase == .thinking || model.phase == .acting || model.speaking || model.jobActive || model.phase == .music) {
-            Text(model.phase == .listening ? "Press F10 again to send"
-                 : model.phase == .music ? "Press F10 to talk over it"
-                 : model.jobActive ? "Working on it. Press F10 to talk, or say “stop” to cancel"
-                                   : "Press F10 to interrupt, or type")
+            Text(model.phase == .listening ? "Press Ctrl+F10 again to send"
+                 : model.phase == .music ? "Press Ctrl+F10 to talk over it"
+                 : model.jobActive ? "Working on it. Press Ctrl+F10 to talk, or say “stop” to cancel"
+                                   : "Press Ctrl+F10 to interrupt, or type")
                 .font(.system(size: 10, design: .rounded)).foregroundStyle(.white.opacity(0.4))
         }
     }

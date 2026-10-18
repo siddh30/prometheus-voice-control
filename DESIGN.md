@@ -4,15 +4,15 @@ A macOS voice assistant with two ways to talk to it:
 
 | How | What it does |
 |---|---|
-| **Dictate** (hold or toggle **F9**) | Speak and the text is typed at the cursor, in any app. |
-| **Prometheus** (**F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also *acts*: it drives your own logged-in Chrome, sees the screen and uses the mouse and keyboard, reads files, searches the web, and narrates what it is doing. You can talk over it, type to it, or interrupt it at any time. |
+| **Dictate** (hold or toggle **Ctrl+F9**) | Speak and the text is typed at the cursor, in any app. |
+| **Prometheus** (**Ctrl+F10**: press to record, press again to send) | A push-to-talk conversation with one Claude agent that also *acts*: it drives your own logged-in Chrome, sees the screen and uses the mouse and keyboard, reads files, searches the web, and narrates what it is doing. You can talk over it, type to it, or interrupt it at any time. |
 
 A small floating widget shows the state (listening, thinking, working, speaking), the plan for bigger tasks, and what is being said.
 
 ## Design principles
 
 1. **One brain.** A single agent both converses and acts. No hand-off between a "chat" model and a "doer" model.
-2. **Never block the human.** Pressing F10 (or typing and pressing Enter) cuts off whatever it is saying or doing and starts your next request. Anything slow (agent start-up, browser connection) happens in the background.
+2. **Never block the human.** Pressing Ctrl+F10 (or typing and pressing Enter) cuts off whatever it is saying or doing and starts your next request. Anything slow (agent start-up, browser connection) happens in the background.
 3. **Scale the ceremony to the task.** A chat reply gets no plan, a one-step action gets one sentence, a multi-step job gets a checklist.
 4. **Act, don't ask.** Ordinary things (open, search, click, play) are done without permission prompts. Only a narrow gate (money, sending, deleting) asks.
 5. **Everything is a plugin.** Modes, actions, skills, browser backends and TTS/STT engines are registered by name. Adding one is a new file.
@@ -159,12 +159,12 @@ widget builds commands only through `Command` in `Protocol.swift`, and a test fa
 | Command | Fields | What it does |
 |---|---|---|
 | `text` | `text` | A typed message. Interrupts what it is saying or doing and becomes the newest instruction. |
-| `input_mode` | `mode` | `typed` when the type box opens (F10 is ignored and the mic is never opened), `voice` when it closes. |
+| `input_mode` | `mode` | `typed` when the type box opens (Ctrl+F10 is ignored and the mic is never opened), `voice` when it closes. |
 | `voice` | `on` | Speak replies aloud, or show them as text only. |
 | `newchat` | none | Clean conversation; facts and lessons are kept. |
 | `fresh` | none | Forget everything you told it: the conversation, facts and sessions (the trash button). Learned lessons are kept. |
 | `maintenance` | none | Tidy memory now. |
-| `key` | `name`, `down` | A hotkey seen by the app (F9 / F10 / Esc). The app owns the macOS permissions. |
+| `key` | `name`, `down` | A hotkey seen by the app (Ctrl+F9 / Ctrl+F10 / Esc). The app owns the macOS permissions. |
 | `approval` | `approved` | The answer to an approval question (Approve / Deny buttons). |
 | `feedback` | `rating`, `note`? | Thumbs `up` / `down` on the latest run, with an optional note. Saved, and later runs learn from it (every mode). |
 | `input_result` | `id` | The app's answer to an `input_request`: a screenshot, or a click / key press done. |
@@ -192,7 +192,7 @@ widget handles. (`?` marks an optional field, which may also be empty.)
 | `job` | `active`, `text`? | A task is running in the background while you keep talking. |
 | `voice` | `on` | Whether replies are spoken (also sent to a new widget on connect). |
 | `speaking` | `on` | The assistant is talking. |
-| `music` | `on`, `title`? | A song or video is playing: the widget shows its title (F10 records over it as usual). |
+| `music` | `on`, `title`? | A song or video is playing: the widget shows its title (Ctrl+F10 records over it as usual). |
 | `route` | `kind`, `how`?, `confidence`?, `action`? | How the request was classified: chat, action or agent. |
 | `session` | `label` | The agent session label (turn count, minutes); empty after a new conversation. |
 | `cost` | `usd`, `turns` | Cost in dollars and the number of agent turns of the last run. |
@@ -227,7 +227,7 @@ fake in a test) and nothing else changes. A guard test per row fails if code rea
 | `OverlayModel` | `Model.swift` | The widget's state; `usesMic` says whether anything microphone-related may show |
 | `VoiceInputView`, `TypingInputView` | `InputViews.swift` | The two input kinds. The typing view has no waveform, timer, voice toggle or hints |
 | `ScreenControl` | `ScreenControl.swift` | Screenshots, mouse and keys, always on a background queue |
-| `HotkeyTap` | `HotkeyTap.swift` | F9 / F10 / Esc, sent as `key` commands |
+| `HotkeyTap` | `HotkeyTap.swift` | Ctrl+F9 / Ctrl+F10 / Esc, sent as `key` commands |
 
 ## Pathways
 
@@ -237,7 +237,7 @@ Every diagram below is one pathway through the code.
 
 ```mermaid
 flowchart LR
-    KEY["F10 pressed<br/>(key command)"] --> REC{"recording?"}
+    KEY["Ctrl+F10 pressed<br/>(key command)"] --> REC{"recording?"}
     REC -- no --> START["on_start: cut off the reply or task<br/>open the microphone"]
     REC -- yes --> SEND["close the microphone"]
     SEND --> LEN{"long enough, any audio?"}
@@ -258,7 +258,7 @@ question waiting for your answer is kept). Owns it: `channels/voice.py`, `input/
 flowchart LR
     BOX["Type box<br/>(widget)"] -- "input_mode: typed" --> CTRL["api.Control"]
     CTRL --> EXCL["TextChannel.exclusive = true"]
-    EXCL --> PAUSE["VoiceChannel.pause(true)<br/>recording dropped, F10 ignored,<br/>mic never opened"]
+    EXCL --> PAUSE["VoiceChannel.pause(true)<br/>recording dropped, Ctrl+F10 ignored,<br/>mic never opened"]
     BOX -- "text" --> CTRL
     CTRL --> SUBMIT["submit_text<br/>cut off, becomes newest instruction"]
     SUBMIT --> CORE["core turn"]
@@ -319,9 +319,11 @@ sequenceDiagram
 
 ### Dictation (F9)
 
+Every hotkey is Control plus the key (`HotkeyTap` swallows a mode key only while Control is down, and the release of a key it took; a bare F9 or F10 passes through to the focused app). **Citrix mode** (`Paster.citrixMode`, a `UserDefaults` flag set by the widget's desktop-computer button) changes how dictated text reaches the focused app: off, the text goes on the clipboard and is pasted with Cmd+V; on, `Paster` types it key by key with US-layout key codes (characters outside that layout go as Unicode text) and never touches the clipboard, which suits Citrix Viewer and other remote windows.
+
 ```mermaid
 flowchart LR
-    K["F9 held or toggled<br/>(key command)"] --> SM["Session manager"]
+    K["Ctrl+F9 held or toggled<br/>(key command)"] --> SM["Session manager"]
     SM --> REC["Mic records"]
     REC --> STT["STT backend"]
     STT --> CLEAN["clean transcript<br/>(drop non-speech)"]
@@ -348,7 +350,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     SONG["audio request ends with a song playing"] --> MODE["music mode<br/>widget shows the title"]
-    MODE --> KEY["F10 pressed"]
+    MODE --> KEY["Ctrl+F10 pressed"]
     KEY --> REC["records as usual<br/>the song is never paused"]
     REC --> TURN["a normal turn"]
     TURN --> BACK["widget returns to the song, not idle"]
@@ -388,14 +390,14 @@ gets `<PastRuns>`: where you were happy, do it that way again; where you were no
 ```mermaid
 sequenceDiagram
     participant U as You
-    participant E as Recorder (F10)
+    participant E as Recorder (Ctrl+F10)
     participant S as STT
     participant P as Prometheus
     participant J as Jev
     participant A as Agent (Claude)
     participant T as Speaker
 
-    U->>E: presses F10, speaks, presses F10
+    U->>E: presses Ctrl+F10, speaks, presses Ctrl+F10
     E->>S: the recording
     S->>P: text
     P->>J: instant command? complexity? risk?
@@ -410,19 +412,19 @@ sequenceDiagram
             P-->>U: step shown on the widget
         end
     end
-    U-->>E: presses F10 (or types and presses Enter)
+    U-->>E: presses Ctrl+F10 (or types and presses Enter)
     E-->>T: stop speaking at once
     E-->>A: cancel, the new request becomes the instruction
 ```
 
 Key behaviours:
 
-- **Push-to-talk:** F10 starts a recording and F10 again sends it, like dictation on F9. Nothing is heard in between, so there is no echo, no talking over it and no endpoint guessing. A recording that is too short is ignored with a hint; a forgotten one ends itself after 120 s.
+- **Push-to-talk:** Ctrl+F10 starts a recording and Ctrl+F10 again sends it, like dictation on Ctrl+F9. Nothing is heard in between, so there is no echo, no talking over it and no endpoint guessing. A recording that is too short is ignored with a hint; a forgotten one ends itself after 120 s.
 - **Interrupting:** starting a recording, or typing a message and pressing Enter, cuts off whatever it is saying or doing. A running background task is not stopped by the key: you can give instructions while it works, and say "stop" to cancel it.
 - **Transcript hygiene:** English is forced, then transcripts that are not speech are dropped (invented subtitle phrases, other scripts, the prompt echoed back).
 - **Typing:** the widget has a text box. While it is open the microphone is never used. A typed message interrupts exactly like a new recording.
 - **Goodbyes:** any natural close ("thanks", "that's all", "good night", "I'm done") ends the conversation, but "thanks, now open Gmail" does not. The reply is a warm, varied farewell. Otherwise the conversation stays open until you press Esc.
-- **Shrinking:** thirty seconds after the last F10 press, with nothing running, the card collapses back to the small pill. It never shrinks while a reply is being spoken, a task runs, an approval waits or you are recording.
+- **Shrinking:** thirty seconds after the last Ctrl+F10 press, with nothing running, the card collapses back to the small pill. It never shrinks while a reply is being spoken, a task runs, an approval waits or you are recording.
 
 ## The agent
 
@@ -535,7 +537,7 @@ States are colour-coded with Siri-style ribbons: idle, listening, transcribing, 
 
 ## Music mode
 
-While media plays the widget shows the song and stays on it between requests. Press F10 to talk over it as usual; the song is never paused by the assistant.
+While media plays the widget shows the song and stays on it between requests. Press Ctrl+F10 to talk over it as usual; the song is never paused by the assistant.
 
 ## Profiles and releases
 

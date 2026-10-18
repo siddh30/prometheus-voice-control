@@ -148,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(withTitle: "Open Phoenix traces", action: #selector(openPhoenix), keyEquivalent: "").target = self
         m.addItem(withTitle: "Restart voice daemon", action: #selector(restartDaemon), keyEquivalent: "").target = self
         m.addItem(withTitle: model.voiceOn ? "Voice replies: on (click for text only)" : "Text only (click to hear replies)", action: #selector(toggleVoiceMenu), keyEquivalent: "").target = self
+        m.addItem(withTitle: model.citrixMode ? "Citrix mode: on (typing key by key; click to paste)" : "Citrix mode: off (click to type key by key)", action: #selector(toggleCitrixMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "New conversation (clean context)", action: #selector(newChatMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Start fresh (forget everything)", action: #selector(startFreshMenu), keyEquivalent: "").target = self
         m.addItem(withTitle: "Clean memory now", action: #selector(cleanMemory), keyEquivalent: "").target = self
@@ -157,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc func openPhoenix() { NSWorkspace.shared.open(URL(string: "http://localhost:6006")!) }
     @objc func toggleVoiceMenu() { model.toggleVoice() }
+    @objc func toggleCitrixMenu() { model.toggleCitrix() }
     @objc func newChatMenu() { model.newConversation() }
     @objc func startFreshMenu() { model.startFresh() }
     @objc func refreshMenu() { model.refresh() }

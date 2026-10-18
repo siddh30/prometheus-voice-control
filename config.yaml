@@ -1,4 +1,4 @@
-hotkeys:
+hotkeys:             # the app listens for Control + the key (Ctrl+F9, Ctrl+F10)
   dictate: f9          # hold nothing: press once, talk, press again; your words are typed where the cursor is
   prometheus: f10       # the main agent: talk, ask it to do things, interrupt it any time
   # assistant: f10      # (older routed version: chat + separate agent + router)

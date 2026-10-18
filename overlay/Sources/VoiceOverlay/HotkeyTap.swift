@@ -14,6 +14,7 @@ final class HotkeyTap {
     private var modeKeys: [Int64: String] = [:]      // keycode -> key name (e.g. 101 -> "f9")
     private var cancelCode: Int64 = 53
     private var cancelName = "esc"
+    private var held = Set<Int64>()                  // mode keys whose press had Control, so the release is ours even if Control came up first
     private var tap: CFMachPort?
     private var retry: Timer?
 
@@ -78,6 +79,13 @@ final class HotkeyTap {
         let down = type == .keyDown
 
         if let name = modeKeys[code] {
+            // Mode keys are Control+key: a bare F9/F10 stays an ordinary key for every other app.
+            if down {
+                guard held.contains(code) || event.flags.contains(.maskControl) else { return Unmanaged.passUnretained(event) }
+                held.insert(code)
+            } else if held.remove(code) == nil {
+                return Unmanaged.passUnretained(event)
+            }
             if !isRepeat { if let j = Command.key(name: name, down: down).json { send(j) } }
             return nil
         }

@@ -8,7 +8,7 @@ import sounddevice as sd
 
 
 class Mic:
-    """Records while started (F9 dictation and F10 conversations both press to start and press to stop); closed otherwise.
+    """Records while started (Ctrl+F9 dictation and Ctrl+F10 conversations both press to start and press to stop); closed otherwise.
     `on_level` gets an RMS level (0..1) per block, called from the audio thread."""
 
     _open_streams = 0                # streams open in this process (any Mic): PortAudio may only be refreshed when none are

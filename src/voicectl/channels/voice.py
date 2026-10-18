@@ -138,7 +138,7 @@ class VoiceChannel:
     def on_mic_problem(self, kind: str) -> None:
         texts = {"silent": "I'm getting no sound from the microphone. Check the input device and Microphone permission.",
                  "unavailable": "I can't reach the microphone. Check that it's connected and that Microphone access is allowed.",
-                 "too_short": "That was too short. Press F10, speak, then press F10 again.",
+                 "too_short": "That was too short. Press Ctrl+F10, speak, then press Ctrl+F10 again.",
                  "no_audio": "The microphone returned no audio. Check the input device in System Settings > Sound."}
         log.warning("microphone: %s", kind)
         if kind in ("silent", "too_short") and self.quiet():

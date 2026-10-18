@@ -173,7 +173,7 @@ class SentenceBuffer:
 
 @modes.register("conversation")
 class ConversationMode(Mode):
-    """Push-to-talk voice chat: press F10 to record, press F10 again to send. Nothing is listening in between.
+    """Push-to-talk voice chat: press Ctrl+F10 to record, press Ctrl+F10 again to send. Nothing is listening in between.
 
     Two independent halves run for the whole conversation:
       * the recorder (channels/voice.py): the microphone is open only while you record;
@@ -317,7 +317,7 @@ class ConversationMode(Mode):
                     self._state("idle")
                     continue
                 if not text:
-                    bus.publish("notice", text="Didn't catch that. Press F10 and try again.")
+                    bus.publish("notice", text="Didn't catch that. Press Ctrl+F10 and try again.")
                     self._state("music" if self.holding() else "idle")
                     continue
                 self._t_text = time.monotonic()

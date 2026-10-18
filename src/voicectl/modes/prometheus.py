@@ -138,7 +138,7 @@ class PrometheusMode(ConversationMode):
         super().__init__(ctx)
         actions.discover(actions_pkg)
         self._approval_watch: asyncio.Task | None = None
-        self.music: dict | None = None             # while a song/video plays: the widget shows it; press F10 to talk over it
+        self.music: dict | None = None             # while a song/video plays: the widget shows it; press Ctrl+F10 to talk over it
         self._music_watch: asyncio.Task | None = None
         self._side_notes: list[str] = []          # things done outside the agent (instant actions) it should know about
         self.jev = (JevDecider(min_confidence=ctx.config.get("assistant.jev.instant_confidence", 0.85), timeout_s=0.7,
@@ -164,7 +164,7 @@ class PrometheusMode(ConversationMode):
     def agent_status(self) -> str:
         return self._runner().status()
 
-    # ---- music mode: the song keeps playing; the widget shows it, and F10 records over it as usual ----
+    # ---- music mode: the song keeps playing; the widget shows it, and Ctrl+F10 records over it as usual ----
     def holding(self) -> bool:
         return self.music is not None
 

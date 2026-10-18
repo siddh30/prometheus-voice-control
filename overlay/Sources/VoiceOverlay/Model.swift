@@ -65,6 +65,7 @@ final class OverlayModel: ObservableObject {
     @Published var checklist: [ChecklistItem] = []
     @Published var typing = false { didSet { if typing != oldValue { sendInputMode() } } }   // the type box is open = typing mode: voice is ignored
     @Published var voiceOn = true             // speak replies aloud, or show them as text only (e.g. on speakers)
+    @Published var citrixMode = Paster.citrixMode   // dictation is typed key by key (no clipboard paste), for Citrix Viewer and other remote windows
     @Published var musicTitle = ""
     @Published var jobActive = false          // the agent is working in the background while we keep talking
     @Published var jobText = ""
@@ -284,6 +285,11 @@ final class OverlayModel: ObservableObject {
 
     func sendInputMode() { send(.inputMode(typed: typing)) }
 
+    func toggleCitrix() {
+        citrixMode.toggle()
+        Paster.citrixMode = citrixMode
+    }
+
     func toggleVoice() {
         voiceOn.toggle()                                   // optimistic; the daemon confirms with a "voice" event
         send(.voice(on: voiceOn))
@@ -328,7 +334,7 @@ final class OverlayModel: ObservableObject {
         Task { try? await Task.sleep(nanoseconds: 900_000_000); self.flash = nil }
     }
 
-    /// How long the card stays after the last activity (F10 pressed, a reply finished) before shrinking back to the small pill.
+    /// How long the card stays after the last activity (Ctrl+F10 pressed, a reply finished) before shrinking back to the small pill.
     /// Dictation results are glanced at, so they go sooner.
     private var restSeconds: Double { conversational ? 30 : 5 }
 
