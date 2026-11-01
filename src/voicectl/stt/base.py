@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from abc import ABC, abstractmethod
 
@@ -10,8 +11,10 @@ from voicectl.core.registry import Registry
 
 
 def vocabulary(config: Config, hint: str | None = None) -> list[str]:
-    """The names and jargon the speech model should spell right (`stt.hotwords`), after the caller's hint."""
-    return [w for w in [hint, *config.get("stt.hotwords", [])] if w]
+    """The names and jargon the speech model should spell right: the caller's hint, `stt.hotwords`, then your own words
+    (`STT_HOTWORDS` in .env, comma-separated: work names stay out of this public repo)."""
+    mine = [w.strip() for w in os.environ.get("STT_HOTWORDS", "").split(",")]
+    return [w for w in [hint, *config.get("stt.hotwords", []), *mine] if w]
 
 
 def correct(text: str, config: Config) -> str:

@@ -47,27 +47,47 @@ enum Paster {
         "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/", "~": "`",
     ]
 
+    private static let shiftKey: CGKeyCode = 56
+
+    /// Milliseconds between key events. A remote session drops or reorders keys sent faster than its link carries them
+    /// (missing spaces, misspelt words), so the default is unhurried; tune with `defaults write <bundle id> citrixKeyDelayMs 25`.
+    private static var keyDelay: useconds_t {
+        let ms = UserDefaults.standard.integer(forKey: "citrixKeyDelayMs")
+        return useconds_t((ms > 0 ? ms : 12) * 1_000)
+    }
+
     private static func typeKeys(_ text: String) {
         typingQueue.async {
-            let src = CGEventSource(stateID: .hidSystemState)
+            let src = CGEventSource(stateID: .privateState)   // not the keys you still hold (Control from the hotkey)
+            let wait = keyDelay
+            func post(_ code: CGKeyCode, _ down: Bool, _ flags: CGEventFlags) {
+                let e = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: down)
+                e?.flags = flags
+                e?.post(tap: .cghidEventTap)
+                usleep(wait)
+            }
             for ch in text {
-                var flags: CGEventFlags = []
                 var base = ch
-                if let s = shifted[ch] { base = s; flags = .maskShift }
-                else if ch.isUppercase, ch.isASCII { base = Character(ch.lowercased()); flags = .maskShift }
-                for down in [true, false] {
-                    let e: CGEvent?
-                    if let code = codes[base] {
-                        e = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: down)
-                        e?.flags = flags
-                    } else {                                   // not on a US keyboard (accents, symbols): send it as text
-                        e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)
+                var shift = false
+                if let s = shifted[ch] { base = s; shift = true }
+                else if ch.isUppercase, ch.isASCII { base = Character(ch.lowercased()); shift = true }
+                guard let code = codes[base] else {            // not on a US keyboard (accents, symbols): send it as text
+                    for down in [true, false] {
+                        let e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)
+                        e?.flags = []
                         var u = Array(String(ch).utf16)
                         e?.keyboardSetUnicodeString(stringLength: u.count, unicodeString: &u)
+                        e?.post(tap: .cghidEventTap)
+                        usleep(wait)
                     }
-                    e?.post(tap: .cghidEventTap)
-                    usleep(4_000)
+                    continue
                 }
+                // A real Shift press around the key: a remote session follows the Shift key, not just the flag on the letter.
+                let flags: CGEventFlags = shift ? .maskShift : []
+                if shift { post(shiftKey, true, .maskShift) }
+                post(code, true, flags)
+                post(code, false, flags)
+                if shift { post(shiftKey, false, []) }
             }
         }
     }
