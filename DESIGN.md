@@ -451,28 +451,66 @@ work. Worker side: a controller that disconnects takes its tasks with it.
 ```mermaid
 flowchart LR
     Ctrl+F12["Ctrl+F12, anywhere<br/>(while the Switch app is running)"] --> PLAN{"plan(running, last)"}
-    ICON["menu-bar icon<br/>shows Single or Swarm"] -- "click" --> CARD["floating card, extending down from the icon<br/>both apps, which one is running"]
-    CARD --> BTN["Switch button<br/>(or Ctrl+F12 while the card is open)"]
+    ICON["menu-bar icon<br/>shows Single, Swarm or TV"] -- "click" --> CARD["floating card, extending down from the icon<br/>all three apps, which one is running"]
+    CARD --> BTN["Switch button on an app<br/>(or Ctrl+F12 while the card is open)"]
     BTN --> PLAN
     PLAN -- "one app running" --> QUIT["quit it, gracefully<br/>(its voice daemon stops with it)"]
     QUIT --> WAIT{"gone within 12 s?"}
     WAIT -- no --> TELL["say which app didn't quit<br/>never force-quit"]
-    WAIT -- yes --> LAUNCH["open the other app"]
+    WAIT -- yes --> LAUNCH["open the next app in the cycle<br/>Single, Swarm, TV, Single"]
     PLAN -- "nothing running" --> LAST["open the one used last<br/>(single mode the first time)"]
     PLAN --> SHOW["the card extends down from the icon to show progress"]
     LAUNCH --> GONE["the card disappears"]
 ```
 
-Voice Control and Prometheus Swarm both own Ctrl+F9 and Ctrl+F10, so only one can run at a time (the swarm app refuses to open while the other
-is running). Prometheus Switch is a third, tiny app that swaps them. **As long as the Switch app is running, Ctrl+F12 works anywhere**: it
+Voice Control, Prometheus Swarm and Prometheus TV all own Ctrl+F9 (the first two also Ctrl+F10), so only one can run at a time (each refuses to
+open while another is running). Prometheus Switch is a tiny fourth app that steps through them: one press of Ctrl+F12 quits the running app and
+opens the next in the order Single, Swarm, TV; the card lists all three and has a Switch button on each. **As long as the Switch app is running, Ctrl+F12 works anywhere**: it
 is a keyboard event tap (swallowed, so macOS does not also use Ctrl+F12 as volume-up), kept alive against App Nap and re-enabled if macOS
 switches it off. It needs the one-time Accessibility and Input Monitoring permissions; until they are granted, Ctrl+F12 still works while the
 card is open, and the card says so. Normally the only thing of the app on screen is its menu-bar icon, which says which app is running.
-Click it (or open the app) and a **floating card extends down from the icon** with both apps and a Switch button, in the same dark look
+Click it (or open the app) and a **floating card extends down from the icon** with all three apps and a Switch button on each, in the same dark look
 as the Voice Control widget. The card also opens by itself while a switch is happening, and disappears afterwards, after 12 seconds, or
 when you click elsewhere. Every key press, click, decision and outcome is written to `~/Library/Logs/PrometheusSwitch.log`, and
-`PrometheusSwitch --now [single|swarm]` performs one switch with no window (it is how the app is tested). The decision is a pure
+`PrometheusSwitch --now [single|swarm|tv]` performs one switch with no window (it is how the app is tested). The decision is a pure
 function in `Plan.swift`, compiled and tested on its own. Install it once with `scripts/build_switcher.sh`.
+
+### TV control (Prometheus TV)
+
+```mermaid
+flowchart LR
+    K["Ctrl+F9 in the TV app<br/>press, say a command, press"] --> STT["one transcription"]
+    STT --> MODE["tv_control mode"]
+    MODE --> PARSE{"tv/commands.py<br/>on the allow-list?"}
+    PARSE -- no --> REFUSE["say: I can't do that on the TV<br/>nothing is sent"]
+    PARSE -- yes --> CLIENT["tv/client.py<br/>Android TV Remote protocol, paired once"]
+    CLIENT --> TV["the TV: a key, or an app launch"]
+    CLIENT -- "unreachable or not paired" --> SAY["say why, in plain words"]
+```
+
+Prometheus TV is a third app, a separate profile like the swarm (`config.tv.yaml`, its own data folder, port 8768, bundle `com.siddharth.prometheustv`).
+In it Ctrl+F9 is the one key; dictation and Prometheus are switched off, so it never types into another app or drives the browser. What it can ask
+of the TV is a **fixed allow-list**, not free text: power, volume (capped by `tv.max_volume_steps`), mute, play or pause, home, back, the arrow
+keys and select, an app by name (`tv.apps` adds to the built-in streaming apps), and an HDMI input by number or by a name from `tv.inputs`.
+Anything else is refused out loud and nothing is sent. The TV's address (`TV_HOST` in `.env`) and the pairing key (`~/.voicectl/tv`, made by
+`scripts/tv_pair.py`) are per-computer settings, never in the repo; the log names the command, never the address. `tests/test_tv_control.py`
+tests the parser and the mode with a fake TV.
+
+Sentences the parser does not know go to a model (`tv/planner.py`) that can only fill in a **plan form**: at most `tv.max_plan_steps` steps, each
+one of a few kinds (a key from a fixed list, a known app, a volume level, a wait, a YouTube search, an HDMI port). Every field is checked in
+code and a plan with anything off is refused whole. A play/pause press right after opening an app is dropped, because Netflix resumes by itself.
+
+Three steps work on the Mac, not the TV (`tv/display.py`): **mirror the main screen** ("bring my work in", "bring the screen here"), **extend the
+screen to the TV** ("extend my screen to the TV") and **stop** ("switch back to TV", which ends either). Both connect the TV by driving Control
+Center (Screen Mirroring, the TV, Use as Separate Display) with fixed UI scripts that find controls by accessibility identifier, never by position
+and never with keystrokes. Mirroring then asks CoreGraphics (`platform/displays.py`, session-only, never saved to the display settings) to make the
+TV a mirror of the main display, so whatever is on it, Citrix included, shows on the TV with nothing moved. Extending instead moves the windows of
+the apps in `tv.work_apps` (empty by default: an app that pins itself to one monitor, as Citrix does, moves back). Stopping ends a mirror first,
+because a mirroring display disappears from macOS's screen list, then disconnects. The TV is only ever the one named by `tv.airplay_name` and
+`tv.airplay_id` (per computer, `config.local.yaml`), checked against a short list of safe characters, and no spoken word is ever put into a
+script. Success is read back from macOS (the display really mirrors the main one, or a screen with that name exists or is gone), never assumed
+from a click, and a screen step is always said on its own, never chained. `tests/test_tv_display.py` runs it against a fake macOS and a fake
+CoreGraphics.
 
 ### Releases and profiles
 

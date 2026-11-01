@@ -7,10 +7,15 @@
 # Your data: ~/Library/Application Support/VoiceControl/data/             (memory, voice cache, logs: survives every release)
 # Roll back: point "current" at an older release and rebuild:  scripts/build_app.sh "<that release folder>"
 #   APP_NAME="Prometheus Swarm" PROFILE_NAME=swarm scripts/release.sh "note"   releases the separate swarm app instead
+#   APP_NAME="Prometheus TV" PROFILE_NAME=tv scripts/release.sh "note"          releases the TV app (Ctrl+F9 speaks a command to the TV)
 set -e
 APP_NAME="${APP_NAME:-Voice Control}"; PROFILE_NAME="${PROFILE_NAME:-stable}"
 export APP_NAME
-if [ "$PROFILE_NAME" = "swarm" ]; then SUPPORT_NAME="PrometheusSwarm"; PORT=8767; else SUPPORT_NAME="VoiceControl"; PORT=8765; fi
+case "$PROFILE_NAME" in
+  swarm) SUPPORT_NAME="PrometheusSwarm"; PORT=8767 ;;
+  tv)    SUPPORT_NAME="PrometheusTV"; PORT=8768 ;;
+  *)     SUPPORT_NAME="VoiceControl"; PORT=8765 ;;
+esac
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Never replace the app while it is open: you may be mid-conversation. (Override only with --force.)
@@ -51,14 +56,14 @@ fi
 
 echo "5/6 check the snapshot really works as 'stable'"
 (cd "$REL" && PROFILE_NAME="$PROFILE_NAME" SUPPORT_NAME="$SUPPORT_NAME" PORT="$PORT" PYTHONPATH=src .venv/bin/python - <<'PY'
-import voicectl.main, voicectl.modes.prometheus
+import voicectl.main, voicectl.modes.prometheus, voicectl.modes.tv_control
 from voicectl.core.config import PROFILE, DATA_DIR, load_config
 c = load_config()
 import os
 assert PROFILE == os.environ["PROFILE_NAME"], PROFILE
 assert str(DATA_DIR).endswith(os.environ["SUPPORT_NAME"] + "/data"), DATA_DIR
-key = "swarm" if PROFILE == "swarm" else "prometheus"
-assert c.get("ui.ws_port") == int(os.environ["PORT"]) and c.get(f"hotkeys.{key}") == "f10", "installed app must use its own port and the F10 key"
+key, want = {"swarm": ("swarm", "f10"), "tv": ("tv_control", "f9")}.get(PROFILE, ("prometheus", "f10"))
+assert c.get("ui.ws_port") == int(os.environ["PORT"]) and c.get(f"hotkeys.{key}") == want, f"installed app must use its own port and the {want.upper()} key"
 if PROFILE == "swarm":
     assert c.get("swarm.enabled") is True, "the swarm app must have the swarm switched on"
 print("   profile", PROFILE, "| data", DATA_DIR, "| port", c.get("ui.ws_port"), "| key", c.get(f"hotkeys.{key}"))

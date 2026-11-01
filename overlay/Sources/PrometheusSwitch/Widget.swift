@@ -19,7 +19,7 @@ final class SwitchModel: ObservableObject {
 }
 
 enum WidgetSize {
-    static let card = CGSize(width: 340, height: 322)
+    static let card = CGSize(width: 340, height: 404)       // three app rows
 }
 
 /// The floating card that opens under the menu-bar icon. Same look as the Voice Control widget: a near-solid dark surface that reads on
@@ -93,8 +93,20 @@ private struct ModeRow: View {
     let busy: Bool
     let pick: () -> Void
 
-    private var symbol: String { mode == .single ? "waveform" : "point.3.connected.trianglepath.dotted" }
-    private var blurb: String { mode == .single ? "One computer, push-to-talk" : "Your computers working together" }
+    private var symbol: String {
+        switch mode {
+        case .single: return "waveform"
+        case .swarm: return "point.3.connected.trianglepath.dotted"
+        case .tv: return "tv"
+        }
+    }
+    private var blurb: String {
+        switch mode {
+        case .single: return "One computer, push-to-talk"
+        case .swarm: return "Your computers working together"
+        case .tv: return "Your TV, by voice (Ctrl+F9)"
+        }
+    }
 
     var body: some View {
         HStack(spacing: 12) {

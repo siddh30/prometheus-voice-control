@@ -1,0 +1,15 @@
+# TV profile: the separate "Prometheus TV" app. Applied on top of config.yaml when profile.txt says "tv".
+# Ctrl+F9 is the one key: press to record, press again, and the TV does what you said. Dictation and Prometheus are off here,
+# so this app never types into another app or drives the browser.
+ui:
+  ws_port: 8768         # Voice Control uses 8765, dev 8766, the swarm 8767
+hotkeys:
+  dictate: ""
+  prometheus: ""
+  tv_control: f9
+agent:
+  warm_on_launch: false   # no agent and no browser bridge at launch: the TV app only parses a command (or asks the model once for a checked plan)
+tts:
+  backend: say         # the Mac's own voice: the free online voice service answers 403 and the reply is never spoken
+telemetry:
+  project: voicectl-tv

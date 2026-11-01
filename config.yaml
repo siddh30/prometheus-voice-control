@@ -66,6 +66,19 @@ tts:
     conversation: true
     assistant: true
     prometheus: true
+    tv_control: true
+
+tv:                           # the "Prometheus TV" app (config.tv.yaml): spoken remote control for a Google TV
+  max_volume_steps: 10        # the most volume steps one command can press ("volume up 50" is capped here)
+  ai: true                    # sentences the parser does not know go to a model that fills in a plan form (checked in code). false: parser only
+  ai_model: claude-haiku-4-5
+  max_plan_steps: 6           # the longest plan the model may make
+  airplay_name: ""            # the TV's name, which is also the name of the display it becomes on this Mac (per computer: config.local.yaml)
+  airplay_id: ""              # the TV's AirPlay device id, as Bonjour advertises it (deviceid=...): Control Center lists devices by id, not name
+  work_apps: []               # apps whose windows "bring my work in" moves onto the TV (e.g. [Citrix Viewer]). Off by default: an app that pins itself to one monitor, as Citrix does, moves back
+  apps: {}                    # extra "spoken name: android package", on top of the built-in streaming apps
+  inputs: {}                  # spoken name -> HDMI port 1 to 4, e.g. {playstation: 2}. The TV's address and pairing key are
+                              # per-computer: TV_HOST in .env, and the key in ~/.voicectl/tv (scripts/tv_pair.py)
 
 conversation:
   model: claude-sonnet-4-6

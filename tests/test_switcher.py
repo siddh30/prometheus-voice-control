@@ -1,4 +1,4 @@
-"""Prometheus Switch: Ctrl+F12 swaps Voice Control and Prometheus Swarm. Its decision logic is compiled and run for real."""
+"""Prometheus Switch: Ctrl+F12 steps through Voice Control, Prometheus Swarm and Prometheus TV. Its decision logic is compiled and run for real."""
 import pathlib
 import re
 import shutil
@@ -11,12 +11,17 @@ SRC = pathlib.Path("overlay/Sources/PrometheusSwitch")
 
 CASES = '''
 let cases: [(Set<Mode>, Mode?, Plan)] = [
-    ([.single], nil, Plan(quit: [.single], launch: .swarm)),
-    ([.swarm], nil, Plan(quit: [.swarm], launch: .single)),
-    ([.single], .swarm, Plan(quit: [.single], launch: .swarm)),       // what is running wins over what was used last
+    ([.single], nil, Plan(quit: [.single], launch: .swarm)),            // the cycle: Single, Swarm, TV, Single...
+    ([.swarm], nil, Plan(quit: [.swarm], launch: .tv)),
+    ([.tv], nil, Plan(quit: [.tv], launch: .single)),
+    ([.single], .tv, Plan(quit: [.single], launch: .swarm)),            // what is running wins over what was used last
     ([], nil, Plan(quit: [], launch: .single)),                         // nothing running, never used: single mode
     ([], .swarm, Plan(quit: [], launch: .swarm)),                       // nothing running: bring back the last one
-    ([.single, .swarm], nil, Plan(quit: [.swarm], launch: .single)),    // both (the apps refuse this): keep single mode
+    ([], .tv, Plan(quit: [], launch: .tv)),
+    ([.single, .swarm], nil, Plan(quit: [.swarm], launch: .single)),    // several (the apps refuse this): keep single mode
+    ([.single, .tv], nil, Plan(quit: [.tv], launch: .single)),
+    ([.single, .swarm, .tv], nil, Plan(quit: [.swarm, .tv], launch: .single)),
+    ([.swarm, .tv], nil, Plan(quit: [.tv], launch: .swarm)),            // no single mode: keep the first in the cycle
 ]
 for (running, last, expected) in cases { precondition(plan(running: running, last: last) == expected, "wrong plan for \\(running)") }
 print("plan ok")
@@ -37,7 +42,7 @@ def test_one_press_of_f12_does_the_right_thing_in_every_situation():
 def test_the_switcher_finds_each_app_by_the_same_identity_the_build_script_gives_it():
     """build_app.sh derives the bundle id from the app's name; the switcher must look for exactly those ids."""
     plan = (SRC / "Plan.swift").read_text()
-    for name in ("Voice Control", "Prometheus Swarm"):
+    for name in ("Voice Control", "Prometheus Swarm", "Prometheus TV"):
         derived = "com.siddharth." + name.replace(" ", "").lower()
         assert derived in plan, f"the switcher does not know {name} as {derived}"
         assert f'"{name}"' in plan

@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SUPPORT = Path.home() / "Library" / "Application Support"
 APP_SUPPORT = SUPPORT / "VoiceControl"
 SWARM_SUPPORT = SUPPORT / "PrometheusSwarm"       # the swarm app is a separate application: nothing shared with Voice Control
+TV_SUPPORT = SUPPORT / "PrometheusTV"             # so is the TV app
 
 
 def _profile() -> str:
@@ -26,7 +27,8 @@ def _profile() -> str:
 PROFILE = _profile()
 DATA_DIR = (Path(os.environ["VOICECTL_DATA"]) if os.environ.get("VOICECTL_DATA")
             else APP_SUPPORT / "data" if PROFILE == "stable"
-            else SWARM_SUPPORT / "data" if PROFILE == "swarm" else ROOT / f"data-{PROFILE}")
+            else SWARM_SUPPORT / "data" if PROFILE == "swarm"
+            else TV_SUPPORT / "data" if PROFILE == "tv" else ROOT / f"data-{PROFILE}")
 
 
 @dataclass(frozen=True)
@@ -58,7 +60,7 @@ def load_config(path: Path | None = None) -> Config:
     # the profile, then this machine's own settings: next to the code (git-ignored) and, for an installed app, in its support
     # folder, which survives every release (so you can edit your list of computers without releasing)
     layers = [path.with_name(f"config.{PROFILE}.yaml"), path.with_name("config.local.yaml")]
-    installed = {"stable": APP_SUPPORT, "swarm": SWARM_SUPPORT}.get(PROFILE)
+    installed = {"stable": APP_SUPPORT, "swarm": SWARM_SUPPORT, "tv": TV_SUPPORT}.get(PROFILE)
     if installed:
         layers.append(installed / "config.local.yaml")
     for overlay in layers:

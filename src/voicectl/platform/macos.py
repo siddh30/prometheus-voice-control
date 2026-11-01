@@ -11,9 +11,11 @@ class MacOS:
     def osascript(self, script: str):
         return self.run(["osascript", "-e", script])
 
-    async def osascript_async(self, script: str, *args: str, timeout: float = 25.0) -> tuple[int, str, str]:
-        """-> (return code, stdout, stderr). Raises asyncio.TimeoutError (after killing the process) if it takes too long."""
-        proc = await asyncio.create_subprocess_exec("osascript", "-e", script, *args,
+    async def osascript_async(self, script: str, *args: str, timeout: float = 25.0, language: str | None = None) -> tuple[int, str, str]:
+        """-> (return code, stdout, stderr). `language="JavaScript"` runs the script as JXA. Raises asyncio.TimeoutError (after killing
+        the process) if it takes too long."""
+        lang = ["-l", language] if language else []
+        proc = await asyncio.create_subprocess_exec("osascript", *lang, "-e", script, *args,
                                                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout)

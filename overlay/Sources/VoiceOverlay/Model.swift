@@ -64,6 +64,7 @@ final class OverlayModel: ObservableObject {
     @Published var speaking = false
     @Published var checklist: [ChecklistItem] = []
     @Published var isSwarmApp = false         // this is Prometheus Swarm (decided by the app's profile), not Voice Control
+    @Published var isTvApp = false            // this is Prometheus TV (the "tv" profile): Ctrl+F9 speaks a command to the TV
     @Published var swarm: SwarmBoard? = nil   // the swarm app only: every computer's state (the daemon's `swarm` event)
     @Published var mapOpen = false            // the computers map pinned open, so you can pick one before talking
     @Published var swarmCleared = false       // the card shrank: hide last request's box until something new happens
@@ -94,7 +95,7 @@ final class OverlayModel: ObservableObject {
         if typing && phase == .listening && !speaking { return jobActive ? "WORKING" : "READY" }    // typing mode: nothing is being listened to
         if speaking && phase != .listening && phase != .transcribing { return "SPEAKING" }
         if jobActive && (phase == .listening || phase == .transcribing) { return "WORKING" }   // never "thinking" while talking
-        if phase == .idle { return isActive ? "IDLE" : (isSwarmApp ? "PROMETHEUS SWARM" : "PROMETHEUS") }   // resting pill carries the name; once the card is open the tag already says it
+        if phase == .idle { return isActive ? "IDLE" : (isTvApp ? "PROMETHEUS TV" : (isSwarmApp ? "PROMETHEUS SWARM" : "PROMETHEUS")) }   // resting pill carries the name; once the card is open the tag already says it
         guard phase == .done else { return phase.label }
         switch mode {
         case "dictate": return "TYPED"
@@ -172,7 +173,7 @@ final class OverlayModel: ObservableObject {
         case .listening:
             switch mode {
             case "agent": return .agent
-            case "action": return .action
+            case "action", "tv_control": return .action
             case "assistant", "conversation", "prometheus", "swarm": return .convo
             default: return .listening
             }
@@ -180,7 +181,7 @@ final class OverlayModel: ObservableObject {
         case .handling, .thinking, .acting, .awaiting_approval:
             if mode == "prometheus" || mode == "swarm" { return phase == .acting || (swarm?.anyBusy ?? false) || !checklist.isEmpty ? .agent : .convo }   // violet while doing, teal while talking
             switch route ?? mode {
-            case "action": return .action
+            case "action", "tv_control": return .action
             case "chat", "assistant", "conversation": return .convo
             default: return .agent
             }

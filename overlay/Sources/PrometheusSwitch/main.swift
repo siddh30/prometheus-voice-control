@@ -252,7 +252,7 @@ final class Switcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// `PrometheusSwitch --now [single|swarm]`: do one switch without any UI, print what happened, exit. (Also how this app is tested.)
+    /// `PrometheusSwitch --now [single|swarm|tv]`: do one switch without any UI, print what happened, exit. (Also how this app is tested.)
     private func runOnce(_ target: String?) {
         let p: Plan
         if let t = target.flatMap(Mode.init(rawValue:)) { p = Plan(quit: running().filter { $0 != t }.map { $0 }, launch: t) }

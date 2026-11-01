@@ -53,7 +53,18 @@ def test_each_app_widget_connects_to_its_own_daemons_port():
     swift = pathlib.Path("overlay/Sources/VoiceOverlay/Daemon.swift").read_text()
     stable = yaml.safe_load(pathlib.Path("config.yaml").read_text())["ui"]["ws_port"]
     swarm = yaml.safe_load(pathlib.Path("config.swarm.yaml").read_text())["ui"]["ws_port"]
-    assert f"ws://127.0.0.1:{swarm}" in swift and f"ws://127.0.0.1:{stable}" in swift and swarm != stable
+    tv = yaml.safe_load(pathlib.Path("config.tv.yaml").read_text())["ui"]["ws_port"]
+    assert f"ws://127.0.0.1:{swarm}" in swift and f"ws://127.0.0.1:{stable}" in swift and f"ws://127.0.0.1:{tv}" in swift
+    assert len({stable, swarm, tv}) == 3
+
+
+def test_the_tv_app_is_one_key_ctrl_f9_and_never_types_or_browses():
+    """Prometheus TV (config.tv.yaml) speaks commands to the TV on Ctrl+F9; dictation and Prometheus are switched off there."""
+    import yaml
+    tv = yaml.safe_load(pathlib.Path("config.tv.yaml").read_text())
+    assert tv["hotkeys"]["tv_control"] == "f9" and not tv["hotkeys"]["dictate"] and not tv["hotkeys"]["prometheus"]
+    assert "tv_control" not in (yaml.safe_load(pathlib.Path("config.yaml").read_text()).get("hotkeys") or {})   # the other apps never bind it
+    assert tv["agent"]["warm_on_launch"] is False          # launching the TV app must not start the agent or the browser bridge
 
 
 def test_the_two_apps_refuse_to_run_together_because_they_share_the_keys():

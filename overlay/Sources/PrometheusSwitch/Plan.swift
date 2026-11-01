@@ -1,13 +1,35 @@
 import Foundation
 
-/// The two apps this switcher chooses between. They share Ctrl+F9 and Ctrl+F10, so only one may run at a time.
+/// The three apps this switcher chooses between, in the order Ctrl+F12 steps through them. They all share Ctrl+F9, so only one may run at a time.
 enum Mode: String, CaseIterable {
-    case single, swarm
+    case single, swarm, tv
 
-    var bundleID: String { self == .single ? "com.siddharth.voicecontrol" : "com.siddharth.prometheusswarm" }
-    var appName: String { self == .single ? "Voice Control" : "Prometheus Swarm" }
-    var label: String { self == .single ? "Single" : "Swarm" }
-    var other: Mode { self == .single ? .swarm : .single }
+    var bundleID: String {
+        switch self {
+        case .single: return "com.siddharth.voicecontrol"
+        case .swarm: return "com.siddharth.prometheusswarm"
+        case .tv: return "com.siddharth.prometheustv"
+        }
+    }
+    var appName: String {
+        switch self {
+        case .single: return "Voice Control"
+        case .swarm: return "Prometheus Swarm"
+        case .tv: return "Prometheus TV"
+        }
+    }
+    var label: String {
+        switch self {
+        case .single: return "Single"
+        case .swarm: return "Swarm"
+        case .tv: return "TV"
+        }
+    }
+    /// The next app in the cycle: Single, Swarm, TV, then Single again.
+    var next: Mode {
+        let all = Mode.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
+    }
 }
 
 /// What one press of Ctrl+F12 does: quit this one first (if any), then open that one.
@@ -17,11 +39,15 @@ struct Plan: Equatable {
 }
 
 /// Pure decision, no side effects, so it can be tested on its own.
-///  * one app running: quit it and open the other (that is the "switch");
+///  * one app running: quit it and open the next one in the cycle (that is the "switch");
 ///  * nothing running: bring back the one you used last (single mode the first time);
-///  * both running (the apps refuse that, but be safe): keep single mode, quit the swarm.
+///  * several running (the apps refuse that, but be safe): keep single mode if it is one of them, else the first in the cycle, and quit the rest.
 func plan(running: Set<Mode>, last: Mode?) -> Plan {
-    if running.contains(.single) && running.contains(.swarm) { return Plan(quit: [.swarm], launch: .single) }
-    if let mode = running.first { return Plan(quit: [mode], launch: mode.other) }
+    let order = Mode.allCases.filter { running.contains($0) }
+    if order.count > 1 {
+        let keep = running.contains(.single) ? Mode.single : order[0]
+        return Plan(quit: order.filter { $0 != keep }, launch: keep)
+    }
+    if let mode = order.first { return Plan(quit: [mode], launch: mode.next) }
     return Plan(quit: [], launch: last ?? .single)
 }

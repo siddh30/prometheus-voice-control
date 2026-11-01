@@ -24,6 +24,7 @@ dependencies = [
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp-proto-http",
     "openinference-instrumentation-claude-agent-sdk",
+    "androidtvremote2>=0.3.2",
 ]
 
 [dependency-groups]
