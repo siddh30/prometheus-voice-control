@@ -1,4 +1,5 @@
 import asyncio
+import types
 
 import numpy as np
 
@@ -342,6 +343,27 @@ def test_whisper_gets_the_vocabulary_as_its_prompt_and_known_mishearings_are_fix
     stt.config = Config({"stt": {"openai": {"model": "gpt-4o-transcribe"}, "hotwords": ["Claude"]}})
     seen.clear(); hear("hi")
     assert "prompt" not in seen                                           # the gpt-4o models would say the prompt back
+
+
+def test_your_own_words_from_env_join_the_vocabulary_and_the_shipped_corrections_fix_claude_md(monkeypatch):
+    from voicectl.core.config import load_config
+    from voicectl.stt.base import correct, vocabulary
+    monkeypatch.setenv("STT_HOTWORDS", "Launchpad, dev space ,")
+    assert vocabulary(Config({"stt": {"hotwords": ["Claude"]}}), "hint") == ["hint", "Claude", "Launchpad", "dev space"]
+    shipped = load_config()
+    assert correct("Instead of cloud.md, use Cloud Code", shipped) == "Instead of CLAUDE.md, use Claude Code"
+    assert correct("open the Confidence page", shipped) == "open the Confluence page" and correct("I have confidence", shipped) == "I have confidence"
+
+
+async def test_each_dictation_ends_with_a_space_so_the_next_one_does_not_run_into_it():
+    from voicectl.modes.dictate import DictateMode
+    typed = []
+    m = DictateMode.__new__(DictateMode)
+    m.ctx = types.SimpleNamespace(bus=EventBus())
+    m.typer = types.SimpleNamespace(type=typed.append)
+    for said in ["Can you set the virtual environment for", "Generative UI repo as well.", "line\n"]:
+        await m.handle(said)
+    assert "".join(typed) == "Can you set the virtual environment for Generative UI repo as well. line\n"
 
 
 def test_farewells_are_warm_varied_and_fit_what_was_said():

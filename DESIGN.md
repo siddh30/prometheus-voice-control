@@ -319,7 +319,7 @@ sequenceDiagram
 
 ### Dictation (F9)
 
-Every hotkey is Control plus the key (`HotkeyTap` swallows a mode key only while Control is down, and the release of a key it took; a bare F9 or F10 passes through to the focused app). **Citrix mode** (`Paster.citrixMode`, a `UserDefaults` flag set by the widget's desktop-computer button) changes how dictated text reaches the focused app: off, the text goes on the clipboard and is pasted with Cmd+V; on, `Paster` types it key by key with US-layout key codes (characters outside that layout go as Unicode text) and never touches the clipboard, which suits Citrix Viewer and other remote windows.
+Every hotkey is Control plus the key (`HotkeyTap` swallows a mode key only while Control is down, and the release of a key it took; a bare F9 or F10 passes through to the focused app). **Citrix mode** (`Paster.citrixMode`, a `UserDefaults` flag set by the widget's desktop-computer button) changes how dictated text reaches the focused app: off, the text goes on the clipboard and is pasted with Cmd+V; on, `Paster` types it key by key with US-layout key codes, pressing a real Shift key for capitals and symbols and leaving 12 ms between key events (`citrixKeyDelayMs` in the app's defaults), because a remote session drops or reorders keys sent faster or flagged without a Shift press (characters outside that layout go as Unicode text) and never touches the clipboard, which suits Citrix Viewer and other remote windows.
 
 ```mermaid
 flowchart LR
@@ -527,7 +527,7 @@ Lifecycle controls:
 
 ## Speech
 
-- **Dictation and conversation STT:** OpenAI Whisper API by default (best accuracy on names and accents), or local faster-whisper (offline, free). Swappable by config. Names it must spell right (`stt.hotwords`, e.g. Claude Code) go to whisper-1 as its prompt and to faster-whisper as hotwords; what it still mishears is fixed afterwards by `stt.corrections` ("cloud code" -> "Claude Code"; plain "cloud" is left alone).
+- **Dictation and conversation STT:** OpenAI Whisper API by default (best accuracy on names and accents), or local faster-whisper (offline, free). Swappable by config. Names it must spell right (`stt.hotwords`, e.g. Claude Code) go to whisper-1 as its prompt and to faster-whisper as hotwords, together with your own words from `STT_HOTWORDS` in `.env` (work names stay out of the repo); what it still mishears is fixed afterwards by `stt.corrections` ("cloud code" -> "Claude Code"; plain "cloud" is left alone). Each dictation is typed with a trailing space, so the next one does not run into it.
 - **TTS:** Edge neural voices, streamed sentence by sentence with a short pre-roll to wake Bluetooth outputs, cached on disk; captions are revealed in step with the audio. A toggle switches to text-only replies (handy on speakers).
 - **Microphone resilience:** each recording opens the default input fresh. If the device list is stale (AirPods off, USB mic in) the audio system is refreshed and the open retried, and a device that refuses 16 kHz is recorded at its native rate and converted.
 
