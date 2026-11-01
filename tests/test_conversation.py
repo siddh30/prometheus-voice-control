@@ -325,6 +325,25 @@ def test_transcripts_that_are_not_speech_are_dropped():
     assert c("Café near Zürich") == "Café near Zürich"
 
 
+def test_whisper_gets_the_vocabulary_as_its_prompt_and_known_mishearings_are_fixed(monkeypatch):
+    import sys, types
+    from voicectl.stt.openai_api import OpenAIBackend
+    seen, said = {}, []
+    class T:
+        def create(self, **kw): seen.update(kw); return types.SimpleNamespace(text=said[-1])
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=lambda: types.SimpleNamespace(audio=types.SimpleNamespace(transcriptions=T()))))
+    stt = OpenAIBackend(Config({"stt": {"hotwords": ["Claude Code", "Claude", "GitHub"],
+                                        "corrections": {"cloud code": "Claude Code", "clod code": "Claude Code", "clod": "Claude"}}}))
+    hear = lambda text: (said.append(text), stt.transcribe(np.zeros(1600, "float32"), 16000))[1]
+    assert hear("Open cloud code") == "Open Claude Code" and seen["prompt"] == "Claude Code, Claude, GitHub"
+    assert hear("ask Clod Code to fix it") == "ask Claude Code to fix it" and hear("tell clod hi") == "tell Claude hi"
+    assert hear("save it to the cloud") == "save it to the cloud" and hear("clodhopper") == "clodhopper"
+    assert hear("Claude Code, Claude, GitHub") == ""                     # the prompt said back on silence is not speech
+    stt.config = Config({"stt": {"openai": {"model": "gpt-4o-transcribe"}, "hotwords": ["Claude"]}})
+    seen.clear(); hear("hi")
+    assert "prompt" not in seen                                           # the gpt-4o models would say the prompt back
+
+
 def test_farewells_are_warm_varied_and_fit_what_was_said():
     from voicectl.modes.conversation import IDLE_FAREWELLS, NIGHT_REPLIES, PHRASES, THANKS_REPLIES
     assert farewell("thank you so much") in THANKS_REPLIES and farewell("good night") in NIGHT_REPLIES

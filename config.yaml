@@ -16,7 +16,12 @@ recording:
 stt:
   backend: openai           # openai (Whisper API, needs credits) | faster_whisper (local, offline)
   language: en              # force English (auto-detect turns background noise into Greek/Hindi/Korean text)
-  hotwords: [Prometheus, LinkedIn, GitHub, Anthropic, OpenAI, Datadog, Stripe, Kubernetes]   # names it should get right
+  hotwords: [Claude Code, Claude, Prometheus, LinkedIn, GitHub, Anthropic, OpenAI, Datadog, Stripe, Kubernetes]   # names it should get right (sent to whisper-1 as its prompt)
+  corrections:              # what it still mishears -> what you said (whole words, any case); plain "cloud" is left alone
+    cloud code: Claude Code
+    clod code: Claude Code
+    clawed code: Claude Code
+    clod: Claude
   faster_whisper:
     model: small.en
     compute_type: int8
