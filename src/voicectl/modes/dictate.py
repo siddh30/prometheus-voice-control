@@ -25,4 +25,6 @@ class DictateMode(Mode):
 
     async def handle(self, text: str) -> None:
         self.ctx.bus.publish("state", state="typing", mode=self.name)
+        if text and not text[-1].isspace():
+            text += " "                      # so the next dictation does not run into this one ("for" + "Generative" -> "forGenerative")
         await asyncio.to_thread(self.typer.type, text)
