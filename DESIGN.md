@@ -646,7 +646,7 @@ Lifecycle controls:
 
 ## Speech
 
-- **Dictation and conversation STT:** OpenAI Whisper API by default (best accuracy on names and accents), or local faster-whisper (offline, free). Swappable by config.
+- **Dictation and conversation STT:** OpenAI Whisper API by default (best accuracy on names and accents), or local faster-whisper (offline, free). Swappable by config. Names it must spell right (`stt.hotwords`, e.g. Claude Code) go to whisper-1 as its prompt and to faster-whisper as hotwords; what it still mishears is fixed afterwards by `stt.corrections` ("cloud code" -> "Claude Code"; plain "cloud" is left alone).
 - **TTS:** Edge neural voices, streamed sentence by sentence with a short pre-roll to wake Bluetooth outputs, cached on disk; captions are revealed in step with the audio. A toggle switches to text-only replies (handy on speakers).
 - **Microphone resilience:** each recording opens the default input fresh. If the device list is stale (AirPods off, USB mic in) the audio system is refreshed and the open retried, and a device that refuses 16 kHz is recorded at its native rate and converted.
 

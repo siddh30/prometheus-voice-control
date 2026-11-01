@@ -6,7 +6,7 @@ import wave
 
 import numpy as np
 
-from voicectl.stt.base import STTBackend, backends
+from voicectl.stt.base import STTBackend, backends, correct, vocabulary
 
 
 # What speech models "hear" in silence and noise (they were trained on subtitled videos).
@@ -44,8 +44,8 @@ class OpenAIBackend(STTBackend):
         buf.seek(0)
         lang = self.config.get("stt.language", "en")          # without this, noise gets "transcribed" as Greek, Hindi, Korean...
         model = self.config.get("stt.openai.model", "whisper-1")
-        use_prompt = bool(hint) and model == "whisper-1"      # the gpt-4o models treat a prompt as text to say back on noise
+        prompt = ", ".join(vocabulary(self.config, hint)) if model == "whisper-1" else ""   # the gpt-4o models treat a prompt as text to say back on noise
         result = OpenAI().audio.transcriptions.create(
-            model=model, file=buf, **({"language": lang} if lang else {}), **({"prompt": hint} if use_prompt else {})
+            model=model, file=buf, **({"language": lang} if lang else {}), **({"prompt": prompt} if prompt else {})
         )
-        return clean_transcript(result.text, hint, lang)
+        return correct(clean_transcript(result.text, prompt or hint, lang), self.config)
