@@ -346,11 +346,11 @@ def test_whisper_gets_the_vocabulary_as_its_prompt_and_known_mishearings_are_fix
 
 
 def test_your_own_words_from_env_join_the_vocabulary_and_the_shipped_corrections_fix_claude_md(monkeypatch):
-    from voicectl.core.config import load_config
+    import pathlib, yaml
     from voicectl.stt.base import correct, vocabulary
     monkeypatch.setenv("STT_HOTWORDS", "Launchpad, dev space ,")
     assert vocabulary(Config({"stt": {"hotwords": ["Claude"]}}), "hint") == ["hint", "Claude", "Launchpad", "dev space"]
-    shipped = load_config()
+    shipped = Config(yaml.safe_load(pathlib.Path("config.yaml").read_text()))   # not load_config: it would load .env into the tests
     assert correct("Instead of cloud.md, use Cloud Code", shipped) == "Instead of CLAUDE.md, use Claude Code"
     assert correct("open the Confidence page", shipped) == "open the Confluence page" and correct("I have confidence", shipped) == "I have confidence"
 
