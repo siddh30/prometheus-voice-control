@@ -461,7 +461,7 @@ struct GestureBar: View {
         .frame(width: 300, height: 32)
         .background(Capsule().fill(Color.white.opacity(0.04)))
         .overlay(countdown)
-        .help(status.on ? "Gestures: hold 👌 to press Enter, ✌️ to switch off" : "Gestures off: click the hand in the menu bar to switch them on")
+        .help(status.on ? "Gestures on: hold 👌 to press Enter. Click ON (or hold ✌️) to switch off" : "Gestures off: click OFF to switch them on")
     }
 
     private func hand(_ seen: Bool, _ color: Color) -> some View {
@@ -477,6 +477,11 @@ struct GestureBar: View {
             .foregroundStyle(color).lineLimit(1).fixedSize()
             .padding(.horizontal, 6).padding(.vertical, 2)
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(color.opacity(0.8), lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture {                                      // switch Gstrl (and its camera) on or off
+                DistributedNotificationCenter.default().postNotificationName(.init("com.siddharth.gstrl.toggle"), object: nil,
+                                                                             userInfo: nil, deliverImmediately: true)
+            }
     }
 
     @ViewBuilder private var countdown: some View {
