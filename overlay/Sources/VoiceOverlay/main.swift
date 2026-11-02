@@ -116,6 +116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                name: NSWindow.didMoveNotification, object: panel)
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(publishCard),
                                                             name: Self.cardAsked, object: nil)
+        // the Gstrl gesture app shows its state on this card instead of a bar of its own
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.siddharth.gstrl.state"), object: nil, queue: .main) { [weak self] note in
+            let message = note.object as? String ?? ""
+            self?.model.gesture = message == "gone" ? nil : GestureStatus(message)
+        }
+        DistributedNotificationCenter.default().postNotificationName(.init("com.siddharth.gstrl.stateAsked"), object: nil, userInfo: nil, deliverImmediately: true)
     }
 
     // Where the card is, for other apps (the Gstrl gesture bar sits just above it): "bundle id|centre x|top y" in screen

@@ -430,3 +430,36 @@ struct FeedbackBar: View {
         }
     }
 }
+
+/// What the Gstrl gesture app reports ("on|hand|label"): switched on, a hand in view, and its label ("👌 Enter…", "✅ Enter sent").
+struct GestureStatus: Equatable {
+    var on: Bool
+    var hand: Bool
+    var label: String
+
+    init?(_ message: String) {
+        let parts = message.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3 else { return nil }
+        on = parts[0] == "1"; hand = parts[1] == "1"; label = parts[2]
+    }
+}
+
+/// The gesture app inside the card: one hand, grey (on, no hand), white (hand seen), amber (a sign counting down), green
+/// (Enter sent), crossed out (switched off). Hover for the words.
+struct GestureIndicator: View {
+    let status: GestureStatus
+    var body: some View {
+        let sent = status.label.hasPrefix("✅")
+        let counting = status.label.hasPrefix("👌") || status.label.hasPrefix("✌️")
+        let color: Color = !status.on ? .white.opacity(0.35) : sent ? .green : counting ? .orange : status.hand ? .white.opacity(0.95) : .white.opacity(0.45)
+        Image(systemName: status.on ? (sent || counting || status.hand ? "hand.raised.fill" : "hand.raised") : "hand.raised.slash")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(color)
+            .frame(width: 22, height: 22)
+            .background(Circle().fill(color.opacity(sent || counting ? 0.22 : 0.08)))
+            .animation(.easeOut(duration: 0.12), value: status)
+            .help(!status.on ? "Gestures off: click the hand in the menu bar to switch them on"
+                  : status.label.isEmpty ? (status.hand ? "Gestures on: hand seen. Hold 👌 to press Enter, ✌️ to switch off" : "Gestures on: hold 👌 to press Enter, ✌️ to switch off")
+                  : status.label)
+    }
+}
