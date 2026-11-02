@@ -60,7 +60,6 @@ struct VoiceInputView: View {
             HStack(spacing: 6) {
                 VoiceToggle(on: model.voiceOn) { model.toggleVoice() }
                 CitrixToggle(on: model.citrixMode) { model.toggleCitrix() }
-                if let g = model.gesture { GestureIndicator(status: g) }
             }
             CommonControls(model: model)
         }

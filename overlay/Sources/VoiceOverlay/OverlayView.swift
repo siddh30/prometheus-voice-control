@@ -41,6 +41,8 @@ struct OverlayView: View {
     /// The card at its natural height (snapshots measure this to prove it fits the window).
     var card: some View {
         VStack(spacing: 12) {
+            if let g = model.gesture { GestureBar(status: g) }     // the Gstrl gesture bar, part of this card
+
             if model.route == "agent" || model.mode == "agent", let s = model.session, model.isActive {
                 Text(s).font(.system(size: 9, weight: .medium, design: .rounded)).tracking(1.2)
                     .foregroundStyle(.white.opacity(0.5))
@@ -423,35 +425,66 @@ struct FeedbackBar: View {
     }
 }
 
-/// What the Gstrl gesture app reports ("on|hand|label"): switched on, a hand in view, and its label ("👌 Enter…", "✅ Enter sent").
+/// What the Gstrl gesture app reports ("on|left|right|countdown start|duration|label"): switched on, which hands are in view,
+/// a running countdown (seconds since 1970, 0 for none) and its label ("👌 Enter…", "✅ Enter sent").
 struct GestureStatus: Equatable {
     var on: Bool
-    var hand: Bool
+    var left: Bool
+    var right: Bool
+    var countdownStart: Date?
+    var duration: Double
     var label: String
 
     init?(_ message: String) {
-        let parts = message.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 3 else { return nil }
-        on = parts[0] == "1"; hand = parts[1] == "1"; label = parts[2]
+        let p = message.split(separator: "|", maxSplits: 5, omittingEmptySubsequences: false).map(String.init)
+        guard p.count == 6, let start = Double(p[3]), let duration = Double(p[4]) else { return nil }
+        on = p[0] == "1"; left = p[1] == "1"; right = p[2] == "1"
+        countdownStart = start > 0 ? Date(timeIntervalSince1970: start) : nil
+        self.duration = duration
+        label = p[5]
     }
 }
 
-/// The gesture app inside the card: one hand, grey (on, no hand), white (hand seen), amber (a sign counting down), green
-/// (Enter sent), crossed out (switched off). Hover for the words.
-struct GestureIndicator: View {
+/// The Gstrl gesture bar, inside the card: a hand at each end that lights up when seen, ON / OFF or the sign being held in
+/// the middle, and a border that fills while a sign counts down.
+struct GestureBar: View {
     let status: GestureStatus
     var body: some View {
-        let sent = status.label.hasPrefix("✅")
-        let counting = status.label.hasPrefix("👌") || status.label.hasPrefix("✌️")
-        let color: Color = !status.on ? .white.opacity(0.35) : sent ? .green : counting ? .orange : status.hand ? .white.opacity(0.95) : .white.opacity(0.45)
-        Image(systemName: status.on ? (sent || counting || status.hand ? "hand.raised.fill" : "hand.raised") : "hand.raised.slash")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(color)
-            .frame(width: 22, height: 22)
-            .background(Circle().fill(color.opacity(sent || counting ? 0.22 : 0.08)))
-            .animation(.easeOut(duration: 0.12), value: status)
-            .help(!status.on ? "Gestures off: click the hand in the menu bar to switch them on"
-                  : status.label.isEmpty ? (status.hand ? "Gestures on: hand seen. Hold 👌 to press Enter, ✌️ to switch off" : "Gestures on: hold 👌 to press Enter, ✌️ to switch off")
-                  : status.label)
+        HStack {
+            hand(status.left, .orange)
+            Spacer()
+            center
+            Spacer()
+            hand(status.right, .cyan).scaleEffect(x: -1, y: 1)
+        }
+        .padding(.horizontal, 20)
+        .frame(width: 300, height: 32)
+        .background(Capsule().fill(Color.white.opacity(0.04)))
+        .overlay(countdown)
+        .help(status.on ? "Gestures: hold 👌 to press Enter, ✌️ to switch off" : "Gestures off: click the hand in the menu bar to switch them on")
+    }
+
+    private func hand(_ seen: Bool, _ color: Color) -> some View {
+        Image(systemName: "hand.raised.fill").font(.system(size: 12))
+            .foregroundStyle(seen && status.on ? color : .white.opacity(0.25))
+    }
+
+    private var center: some View {
+        let idle = status.label.isEmpty
+        let text = !status.on ? "OFF" : idle ? "ON" : status.label
+        let color: Color = !status.on ? .white.opacity(0.4) : idle || status.label.hasPrefix("✅") ? .green : .orange
+        return Text(text).font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundStyle(color).lineLimit(1).fixedSize()
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(color.opacity(0.8), lineWidth: 1))
+    }
+
+    @ViewBuilder private var countdown: some View {
+        if let start = status.countdownStart, status.duration > 0 {
+            TimelineView(.animation) { context in
+                let progress = min(1, max(0, context.date.timeIntervalSince(start) / status.duration))
+                Capsule().trim(from: 0, to: progress).stroke(Color.orange.opacity(0.9), lineWidth: 2)
+            }
+        }
     }
 }
