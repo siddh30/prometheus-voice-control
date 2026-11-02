@@ -69,6 +69,7 @@ final class OverlayModel: ObservableObject {
     @Published var swarmCleared = false       // the card shrank: hide last request's box until something new happens
     @Published var typing = false { didSet { if typing != oldValue { sendInputMode() } } }   // the type box is open = typing mode: voice is ignored
     @Published var voiceOn = true             // speak replies aloud, or show them as text only (e.g. on speakers)
+    @Published var gesture: GestureStatus?    // the Gstrl gesture app's state, shown as a hand on the card (nil: Gstrl is not running)
     @Published var citrixMode = Paster.citrixMode   // dictation is typed key by key (no clipboard paste), for Citrix Viewer and other remote windows
     @Published var musicTitle = ""
     @Published var jobActive = false          // the agent is working in the background while we keep talking
