@@ -8,6 +8,7 @@ struct SizeKey: PreferenceKey {
 struct OverlayView: View {
     @ObservedObject var model: OverlayModel
     var onSize: (CGSize) -> Void = { _ in }
+    var onCardHeight: (CGFloat) -> Void = { _ in }   // the card's height, so other apps can sit just above it
 
     static let windowHeight: CGFloat = 640          // the panel's fixed size (main.swift); the card must fit inside it
     static let windowWidth: CGFloat = 520           // wide enough for the status row with every button: nothing in it may wrap
@@ -21,7 +22,7 @@ struct OverlayView: View {
             .background(GeometryReader { Color.clear.preference(key: HeightKey.self, value: $0.size.height) })
         if snapshotFlat || cardHeight <= Self.windowHeight {
             measured.frame(width: Self.windowWidth, height: Self.windowHeight, alignment: .bottom)
-                .onPreferenceChange(HeightKey.self) { cardHeight = $0 }
+                .onPreferenceChange(HeightKey.self) { cardHeight = $0; onCardHeight($0) }
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
@@ -32,7 +33,7 @@ struct OverlayView: View {
                 .onChange(of: model.rateOpen) { _ in proxy.scrollTo("card", anchor: .bottom) }       // the note box opens at the bottom: keep it in view
                 .onChange(of: model.result) { _ in proxy.scrollTo("card", anchor: .bottom) }
                 .onChange(of: model.checklist.count) { _ in proxy.scrollTo("card", anchor: .bottom) }
-                .onPreferenceChange(HeightKey.self) { cardHeight = $0 }
+                .onPreferenceChange(HeightKey.self) { cardHeight = $0; onCardHeight($0) }
             }
         }
     }
