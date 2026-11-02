@@ -89,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hosting = NSHostingView(rootView: OverlayView(model: model, onSize: { [weak self] size in
             DispatchQueue.main.async { self?.place(size: size) }
+        }, onCardHeight: { [weak self] h in
+            DispatchQueue.main.async { self?.cardHeight = h; self?.publishCard() }
         }))
         panel = OverlayPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -112,6 +114,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(userMoved),
                                                name: NSWindow.didMoveNotification, object: panel)
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(publishCard),
+                                                            name: Self.cardAsked, object: nil)
+    }
+
+    // Where the card is, for other apps (the Gstrl gesture bar sits just above it): "bundle id|centre x|top y" in screen
+    // points, posted when the card changes size or moves and when asked; "bundle id|gone" when the app quits.
+    static let cardMoved = Notification.Name("com.siddharth.prometheus.card")
+    static let cardAsked = Notification.Name("com.siddharth.prometheus.cardAsked")
+    var cardHeight: CGFloat = 0
+
+    @objc func publishCard() {
+        guard let panel, cardHeight > 0 else { return }
+        let f = panel.frame                                          // the card sits at the bottom of the window
+        let top = f.minY + min(cardHeight, OverlayView.windowHeight)
+        let id = Bundle.main.bundleIdentifier ?? "VoiceOverlay"
+        DistributedNotificationCenter.default().postNotificationName(Self.cardMoved, object: "\(id)|\(f.midX)|\(top)",
+                                                                     userInfo: nil, deliverImmediately: true)
     }
 
     // The window always hugs the widget. Position is stored as an anchor (center-x + the edge that stays
@@ -145,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func userMoved() {
+        publishCard()                                    // dragged or placed: tell the gesture bar where the card went
         guard !placing, let vf = panel.screen?.visibleFrame else { return }
         let f = panel.frame
         growsDown = f.midY > vf.midY
@@ -162,7 +182,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func screensChanged() { place(size: panel.frame.size) }
 
-    func applicationWillTerminate(_ n: Notification) { supervisor?.stop() }
+    func applicationWillTerminate(_ n: Notification) {
+        supervisor?.stop()
+        DistributedNotificationCenter.default().postNotificationName(Self.cardMoved, object: "\(Bundle.main.bundleIdentifier ?? "VoiceOverlay")|gone",
+                                                                     userInfo: nil, deliverImmediately: true)
+    }
 
     // Right-click the Dock icon for these.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
